@@ -927,6 +927,41 @@ class AutoaApp:
 
         target_region = (0, 0, left_panel_width, screen_height) if screen_height else None
 
+        # === 初始診斷：檢查當前箭頭狀態 ===
+        self.append_log("  → 初始診斷：檢查當前箭頭狀態")
+
+        initial_show = self._try_locate_all(
+            pyautogui_module,
+            self.show_arrow_template,
+            region=target_region,
+            confidence=0.85
+        )
+        initial_hide = self._try_locate_all(
+            pyautogui_module,
+            self.hide_arrow_template,
+            region=target_region,
+            confidence=0.85
+        )
+
+        initial_show_count = len(initial_show) if initial_show else 0
+        initial_hide_count = len(initial_hide) if initial_hide else 0
+
+        self.append_log(f"    初始狀態：{initial_show_count} 個展開箭頭、{initial_hide_count} 個收合箭頭")
+
+        if initial_show and initial_show_count > 0:
+            self.append_log(f"    展開箭頭位置：")
+            for i, loc in enumerate(initial_show, 1):
+                coords = self._box_to_tuple(loc)
+                if coords:
+                    self.append_log(f"      {i}. Y={int(coords[1])}, X={int(coords[0])}")
+
+        if initial_hide and initial_hide_count > 0:
+            self.append_log(f"    收合箭頭位置：")
+            for i, loc in enumerate(initial_hide, 1):
+                coords = self._box_to_tuple(loc)
+                if coords:
+                    self.append_log(f"      {i}. Y={int(coords[1])}, X={int(coords[0])}")
+
         # === 第一階段：收合所有展開的箭頭 ===
         self.append_log("  階段 1：收合所有展開的箭頭")
         max_collapse_attempts = 8  # 最多嘗試 8 次收合
