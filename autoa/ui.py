@@ -1434,10 +1434,12 @@ class AutoaApp:
                     kwargs.pop('confidence', None)
                     try:
                         return pyautogui_module.locateOnScreen(str(template_path), **kwargs)
-                    except Exception as exc:
-                        self.append_log(f"模板比對失敗 ({template_path.name})：{exc}")
-                except Exception as exc:
-                    self.append_log(f"模板比對失敗 ({template_path.name})：{exc}")
+                    except Exception:
+                        # 靜默處理，這是正常的搜索過程
+                        pass
+                except Exception:
+                    # 靜默處理，這是正常的搜索過程
+                    pass
 
         return None
 
