@@ -78,12 +78,6 @@ class AutoaApp:
         self.friend_list_template = Path("templates/friend-list.png")
         self.message_cube_template = Path("templates/message_cube.png")
         self.greenchat_template = Path("templates/greenchat.png")  # 新增：綠色聊天框模板
-        self.arrow_section_templates: list[tuple[str, Path, str]] = [
-            ("收藏", Path("templates/favorite.png"), "hide"),
-            ("社群", Path("templates/community.png"), "hide"),
-            ("群組", Path("templates/group.png"), "hide"),
-            ("好友", Path("templates/friend.png"), "show"),
-        ]
         self.hide_arrow_template = Path("templates/hide.png")
         self.show_arrow_template = Path("templates/show.png")
 
@@ -1142,43 +1136,24 @@ class AutoaApp:
         return location is not None
 
     def handle_align_arrow_sections(self) -> None:
-        sequence = [
-            ("收藏", self.arrow_section_templates[0][1], "hide"),
-            ("社群", self.arrow_section_templates[1][1], "hide"),
-            ("群組", self.arrow_section_templates[2][1], "hide"),
-            ("好友", self.arrow_section_templates[3][1], "show"),
-        ]
+        """測試頁面的箭頭校正功能"""
         try:
             import pyautogui
         except ImportError as exc:
             messagebox.showerror("箭頭校正", f"無法載入 pyautogui：{exc}")
             return
 
-        self.append_log("開始箭頭校正（線性模式）")
+        if not self._focus_line_window(pyautogui):
+            messagebox.showwarning("箭頭校正", "未偵測到 LINE 視窗。")
+            return
 
-        reports: list[str] = []
-        try:
-            screen_width, screen_height = pyautogui.size()
-        except Exception:
-            screen_width = screen_height = None
+        self.append_log("開始箭頭校正")
+        success = self._calibrate_arrows_for_friend_only(pyautogui)
 
-        for idx, (name, template, expectation) in enumerate(sequence):
-            result = self._calibrate_section_once(
-                pyautogui,
-                name=name,
-                template=template,
-                expectation=expectation,
-                screen_size=(screen_width, screen_height),
-            )
-            reports.append(result)
-
-            # Add delay between sections to allow UI to stabilize
-            # Skip delay after the last section
-            if idx < len(sequence) - 1:
-                self.append_log(f"等待 UI 穩定...")
-                time.sleep(0.6)
-
-        messagebox.showinfo("箭頭校正結果", "\n".join(reports))
+        if success:
+            messagebox.showinfo("箭頭校正結果", "✓ 箭頭校正成功：3 個收合 + 1 個展開")
+        else:
+            messagebox.showwarning("箭頭校正結果", "✗ 箭頭校正失敗，請查看日誌")
 
     def _scroll_left_panel_to_top(
         self,
@@ -1804,8 +1779,6 @@ class AutoaApp:
         yield self.friend_list_template
         yield self.message_cube_template
         yield self.greenchat_template
-        for _, path, _ in self.arrow_section_templates:
-            yield path
         yield self.hide_arrow_template
         yield self.show_arrow_template
 
