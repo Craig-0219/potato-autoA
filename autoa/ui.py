@@ -1002,9 +1002,54 @@ class AutoaApp:
             # 4. 如果有圖片，附加圖片
             if image_path and Path(image_path).exists():
                 self.append_log(f"  → 附加圖片：{image_path}")
-                # TODO: 實現圖片附加功能
-                # 這裡需要找到附件按鈕並選擇圖片
-                time.sleep(0.5)
+
+                # 將圖片路徑轉換為絕對路徑
+                abs_image_path = str(Path(image_path).absolute())
+
+                try:
+                    import pyperclip
+
+                    # 保存當前剪貼簿內容（訊息文字）
+                    saved_clipboard = None
+                    try:
+                        saved_clipboard = pyperclip.paste()
+                    except:
+                        pass
+
+                    # 使用 Ctrl+O 快捷鍵打開文件選擇器
+                    pyautogui_module.hotkey('ctrl', 'o')
+                    time.sleep(1.0)  # 等待文件選擇對話框出現
+
+                    # 使用剪貼簿來處理路徑（支持中文和特殊字符）
+                    pyperclip.copy(abs_image_path)
+                    time.sleep(0.1)
+
+                    # 在文件名輸入框中貼上路徑（Ctrl+V）
+                    pyautogui_module.hotkey('ctrl', 'v')
+                    time.sleep(0.5)
+
+                    # 按 Enter 確認選擇
+                    pyautogui_module.press('enter')
+                    time.sleep(1.2)  # 等待圖片加載並顯示在輸入框
+
+                    # 恢復剪貼簿內容（訊息文字）
+                    if saved_clipboard:
+                        try:
+                            pyperclip.copy(saved_clipboard)
+                        except:
+                            pass
+
+                    self.append_log(f"  ✓ 圖片已附加")
+
+                except Exception as e:
+                    self.append_log(f"  ✗ 圖片附加失敗：{e}")
+                    # 如果附加失敗，按 ESC 關閉可能開啟的對話框
+                    try:
+                        pyautogui_module.press('escape')
+                        time.sleep(0.3)
+                    except:
+                        pass
+                    # 即使附加失敗，仍然繼續發送文字訊息
 
             # 5. 發送訊息
             if dry_run:
