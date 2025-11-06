@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import csv
 import locale
+import os
 import random
 import subprocess
+import sys
 import threading
 import time
 from collections import deque
@@ -18,6 +20,17 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 from autoa.line_automation import CycleResult, LineAutomationError, cycle_friend_chats
+
+
+def get_resource_path(relative_path: str) -> Path:
+    """獲取資源檔案的絕對路徑（支援 PyInstaller 打包）"""
+    try:
+        # PyInstaller 創建臨時資料夾，將路徑存儲在 _MEIPASS 中
+        base_path = Path(sys._MEIPASS)
+    except AttributeError:
+        # 開發環境中使用當前工作目錄
+        base_path = Path.cwd()
+    return base_path / relative_path
 
 
 STATUS_COLORS = {
@@ -75,11 +88,11 @@ class AutoaApp:
             "line": False,
         }
 
-        self.friend_list_template = Path("templates/friend-list.png")
-        self.message_cube_template = Path("templates/message_cube.png")
-        self.greenchat_template = Path("templates/greenchat.png")  # 新增：綠色聊天框模板
-        self.hide_arrow_template = Path("templates/hide.png")
-        self.show_arrow_template = Path("templates/show.png")
+        self.friend_list_template = get_resource_path("templates/friend-list.png")
+        self.message_cube_template = get_resource_path("templates/message_cube.png")
+        self.greenchat_template = get_resource_path("templates/greenchat.png")  # 新增：綠色聊天框模板
+        self.hide_arrow_template = get_resource_path("templates/hide.png")
+        self.show_arrow_template = get_resource_path("templates/show.png")
 
         self.notebook: ttk.Notebook | None = None
 
@@ -348,11 +361,13 @@ class AutoaApp:
 
     def _is_line_running(self) -> bool:
         try:
+            # 使用 CREATE_NO_WINDOW 避免 CMD 視窗閃動
             result = subprocess.run(
                 ["tasklist", "/FI", "IMAGENAME eq line.exe"],
                 capture_output=True,
                 text=True,
                 check=False,
+                creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0,
             )
         except Exception:
             return False
@@ -497,7 +512,7 @@ class AutoaApp:
             # 3. 找到好友標題並點擊第一個好友
             self.append_log("步驟 3/3：定位第一個好友")
             self._set_progress(25.0)
-            friend_template = Path("templates/friend.png")
+            friend_template = get_resource_path("templates/friend.png")
             friend_location = self._try_locate(pyautogui, friend_template, confidence=0.88)
             if friend_location is None:
                 self.append_log("未找到好友標題")
@@ -806,7 +821,7 @@ class AutoaApp:
                 return
 
             # 2. 找到好友標題位置
-            friend_template = Path("templates/friend.png")
+            friend_template = get_resource_path("templates/friend.png")
             friend_location = self._try_locate(pyautogui, friend_template, confidence=0.88)
             if friend_location is None:
                 self.append_log("未找到好友標題")
