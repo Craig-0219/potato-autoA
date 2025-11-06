@@ -109,6 +109,7 @@ class AutoaApp:
 
         self.recipient_var = tk.StringVar()
         self.recipient_choice_var = tk.StringVar()
+        self.friend_count_var = tk.StringVar(value="10")  # 新增：要開啟的好友數量
         self.message_text: ScrolledText | None = None
         self.image_var = tk.StringVar()
         self.mode_var = tk.StringVar(value="dryrun")
@@ -145,6 +146,7 @@ class AutoaApp:
 
         self.friend_list_template = Path("templates/friend-list.png")
         self.message_cube_template = Path("templates/message_cube.png")
+        self.greenchat_template = Path("templates/greenchat.png")  # 新增：綠色聊天框模板
         self.arrow_section_templates: list[tuple[str, Path, str]] = [
             ("收藏", Path("templates/favorite.png"), "hide"),
             ("社群", Path("templates/community.png"), "hide"),
@@ -234,7 +236,7 @@ class AutoaApp:
         self.main_canvas.yview_scroll(direction, "units")
 
     def _build_recipient_section(self, parent: ttk.Frame) -> None:
-        frame = ttk.LabelFrame(parent, text="收件者", padding=10)
+        frame = ttk.LabelFrame(parent, text="收件者 / 好友設定", padding=10)
         frame.grid(row=0, column=0, sticky="ew")
         frame.columnconfigure(1, weight=1)
 
@@ -252,6 +254,11 @@ class AutoaApp:
         self.recipient_combo.grid(row=1, column=1, sticky="ew", pady=(8, 0))
         self.recipient_combo.bind("<<ComboboxSelected>>", self.on_recipient_selected)
         ttk.Button(frame, text="重新載入", command=self.load_recipients).grid(row=1, column=2, pady=(8, 0))
+
+        # 新增：開啟好友數量設定
+        ttk.Label(frame, text="開啟好友數量：").grid(row=2, column=0, sticky="w", pady=(8, 0))
+        ttk.Entry(frame, textvariable=self.friend_count_var, width=10).grid(row=2, column=1, sticky="w", pady=(8, 0))
+        ttk.Label(frame, text="（用於依序開啟聊天窗測試）").grid(row=2, column=2, sticky="w", pady=(8, 0), padx=(8, 0))
 
     def _build_message_section(self, parent: ttk.Frame) -> None:
         frame = ttk.LabelFrame(parent, text="訊息內容", padding=10)
@@ -792,72 +799,124 @@ class AutoaApp:
         messagebox.showinfo("測試完成", "已嘗試貼上並送出訊息。")
 
     def handle_cycle_friend_chats(self) -> None:
+        """依序開啟聊天窗測試（新實現）"""
         if self.friend_cycle_thread and self.friend_cycle_thread.is_alive():
             messagebox.showinfo('聊天測試', '聊天測試正在進行中，請稍候。')
             return
 
-        values: list[str] = []
-        if self.recipient_combo is not None:
-            try:
-                values = [v for v in self.recipient_combo['values'] if v]  # type: ignore[index]
-            except Exception:
-                values = []
-        if not values:
-            self.load_recipients()
-            if self.recipient_combo is not None:
-                try:
-                    values = [v for v in self.recipient_combo['values'] if v]  # type: ignore[index]
-                except Exception:
-                    values = []
-        if not values:
-            self.append_log('好友名單為空，無法依序開啟聊天窗。')
-            messagebox.showwarning('好友名單', '名單為空或尚未載入，請先準備 lists/recipients.csv。')
+        # 獲取要開啟的好友數量
+        try:
+            friend_count = int(self.friend_count_var.get())
+            if friend_count <= 0:
+                messagebox.showwarning('好友數量', '請輸入大於 0 的數量。')
+                return
+        except ValueError:
+            messagebox.showwarning('好友數量', '請輸入有效的數字。')
             return
 
-        limit = min(len(values), MAX_CHAT_TEST_RECIPIENTS)
-        if limit <= 0:
-            self.append_log('好友名單筆數不足，略過聊天測試。')
-            messagebox.showwarning('聊天測試', '名單筆數不足，無法進行聊天測試。')
-            return
+        self.append_log(f'開始依序開啟聊天窗測試：目標開啟 {friend_count} 位好友')
 
-        message = ''
-        if self.message_text is not None:
-            message = self.message_text.get('1.0', 'end').strip()
-        payload = message or None
-
-        self.append_log(f'聊天測試：準備使用 pywinauto 依序開啟 {limit} 位好友。')
         thread = threading.Thread(
-            target=self._cycle_friend_chats_worker,
-            args=(limit, payload),
+            target=self._cycle_friend_chats_worker_new,
+            args=(friend_count,),
             daemon=True,
         )
         self.friend_cycle_thread = thread
         thread.start()
 
-    def _cycle_friend_chats_worker(self, limit: int, message: str | None) -> None:
+    def _cycle_friend_chats_worker_new(self, friend_count: int) -> None:
+        """依序開啟聊天窗的 Worker 方法"""
         try:
-            result = cycle_friend_chats(limit=limit, message=message, log=self.append_log)
-        except LineAutomationError as exc:
-            self.append_log(f'聊天測試失敗：{exc}')
-            self.root.after(0, lambda err=exc: messagebox.showerror('聊天測試', str(err)))
+            import pyautogui
+        except ImportError as exc:
+            self.append_log(f"無法載入 pyautogui：{exc}")
+            self.root.after(0, lambda: messagebox.showerror('測試失敗', f'無法載入 pyautogui：{exc}'))
+            return
+
+        try:
+            # 1. 聚焦 LINE 視窗
+            if not self._focus_line_window(pyautogui):
+                self.append_log("未偵測到 LINE 視窗")
+                self.root.after(0, lambda: messagebox.showwarning('測試失敗', '未偵測到 LINE 視窗。'))
+                return
+
+            # 2. 找到好友標題位置
+            friend_template = Path("templates/friend.png")
+            friend_location = self._try_locate(pyautogui, friend_template, confidence=0.88)
+            if friend_location is None:
+                self.append_log("未找到好友標題")
+                self.root.after(0, lambda: messagebox.showwarning('測試失敗', '未找到好友標題，請確認好友區塊已展開。'))
+                return
+
+            friend_coords = self._box_to_tuple(friend_location)
+            if friend_coords is None:
+                self.append_log("好友標題位置解析失敗")
+                return
+
+            # 3. 計算第一個好友的點擊位置（標題下方一點點）
+            first_friend_x = friend_coords[0] + friend_coords[2] // 2
+            first_friend_y = friend_coords[1] + friend_coords[3] + 20  # 標題下方 20 像素
+
+            self.append_log(f"準備點擊第一個好友位置：({first_friend_x}, {first_friend_y})")
+
+            # 4. 點擊第一個好友
+            pyautogui.click(first_friend_x, first_friend_y)
+            time.sleep(0.5)
+
+            opened_count = 0
+            max_attempts = friend_count * 3  # 最多嘗試 3 倍數量，防止無限循環
+
+            # 5. 開始循環檢測和導航
+            for attempt in range(max_attempts):
+                # 檢測是否有 greenchat.png
+                has_greenchat = self._detect_greenchat(pyautogui)
+
+                if has_greenchat:
+                    # 有綠色聊天框，點擊開啟
+                    self.append_log(f"第 {opened_count + 1} 位好友：檢測到綠色聊天框，點擊開啟")
+                    opened_count += 1
+
+                    # 點擊 greenchat
+                    greenchat_location = self._try_locate(pyautogui, self.greenchat_template, confidence=0.85)
+                    if greenchat_location:
+                        greenchat_coords = self._box_to_tuple(greenchat_location)
+                        if greenchat_coords:
+                            click_x = greenchat_coords[0] + greenchat_coords[2] // 2
+                            click_y = greenchat_coords[1] + greenchat_coords[3] // 2
+                            pyautogui.click(click_x, click_y)
+                            time.sleep(0.3)
+
+                    # 檢查是否已達目標數量
+                    if opened_count >= friend_count:
+                        self.append_log(f"已成功開啟 {opened_count} 位好友的聊天窗")
+                        break
+                else:
+                    # 沒有綠色聊天框，記錄並跳過
+                    self.append_log(f"當前好友無綠色聊天框，跳過")
+
+                # 使用方向鍵下移到下一個好友
+                pyautogui.press('down')
+                time.sleep(0.3)
+
+            # 6. 完成報告
+            if opened_count >= friend_count:
+                self.root.after(0, lambda: messagebox.showinfo('測試完成', f'成功開啟 {opened_count} 位好友的聊天視窗。'))
+            else:
+                self.root.after(0, lambda: messagebox.showwarning('測試完成', f'僅開啟 {opened_count} 位好友的聊天視窗（目標：{friend_count}）。'))
+
         except Exception as exc:
-            self.append_log(f'聊天測試發生未預期錯誤：{exc}')
-            self.root.after(0, lambda err=exc: messagebox.showerror('聊天測試', f'執行失敗：{err}'))
-        else:
-            self.root.after(0, lambda: self._show_cycle_friend_result(result))
+            self.append_log(f'聊天測試發生錯誤：{exc}')
+            self.root.after(0, lambda err=exc: messagebox.showerror('測試失敗', f'執行失敗：{err}'))
         finally:
             self.friend_cycle_thread = None
 
-    def _show_cycle_friend_result(self, result: CycleResult) -> None:
-        processed = len(result.processed)
-        failed = len(result.failed)
-        self.append_log(f'聊天測試完成：成功 {processed} 位，失敗 {failed} 位。')
-        if result.failed:
-            info = '未成功：' + ', '.join(result.failed)
-            messagebox.showwarning('聊天測試', f'部分好友未開啟成功。\n{info}')
-        else:
-            suffix = '，已達清單尾端。' if result.reached_end else ''
-            messagebox.showinfo('聊天測試', f'已依序開啟 {processed} 位好友的聊天視窗{suffix}')
+    def _detect_greenchat(self, pyautogui_module: Any) -> bool:
+        """檢測是否存在綠色聊天框"""
+        if not self.greenchat_template.exists():
+            return False
+
+        location = self._try_locate(pyautogui_module, self.greenchat_template, confidence=0.85)
+        return location is not None
 
     def handle_align_arrow_sections(self) -> None:
         sequence = [
@@ -1521,6 +1580,7 @@ class AutoaApp:
     def _template_paths(self) -> Iterable[Path]:
         yield self.friend_list_template
         yield self.message_cube_template
+        yield self.greenchat_template
         for _, path, _ in self.arrow_section_templates:
             yield path
         yield self.hide_arrow_template
