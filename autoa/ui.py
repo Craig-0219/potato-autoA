@@ -1092,11 +1092,10 @@ class AutoaApp:
             # 5. 發送訊息
             if dry_run:
                 self.append_log("  → 乾跑模式：不實際發送")
-                # 清除輸入框（ESC 鍵）
-                pyautogui_module.press('escape')
-                time.sleep(0.3)
-                # 可能需要按兩次 ESC 來關閉聊天窗口或清除內容
-                pyautogui_module.press('escape')
+                # 選取全部內容（Ctrl+A）然後刪除（Delete）
+                pyautogui_module.hotkey('ctrl', 'a')
+                time.sleep(0.2)
+                pyautogui_module.press('delete')
                 time.sleep(0.5)
                 return True
             else:
