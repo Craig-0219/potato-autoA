@@ -903,41 +903,106 @@ class AutoaApp:
             self.friend_cycle_thread = None
 
     def _calibrate_arrows_for_friend_only(self, pyautogui_module: Any) -> bool:
-        """執行箭頭校正：收藏/社群/群組 HIDE，好友 SHOW"""
+        """執行箭頭校正：直接偵測所有箭頭，確保 3 個 hide + 1 個 show"""
         try:
             screen_width, screen_height = pyautogui_module.size()
         except Exception:
             screen_width = screen_height = None
 
-        # 定義要處理的項目：收藏、社群、群組要 hide，好友要 show
-        sections = [
-            ("收藏", self.arrow_section_templates[0][1], "hide"),
-            ("社群", self.arrow_section_templates[1][1], "hide"),
-            ("群組", self.arrow_section_templates[2][1], "hide"),
-            ("好友", self.arrow_section_templates[3][1], "show"),
-        ]
+        target_region = (0, 0, screen_width, screen_height) if screen_width and screen_height else None
 
-        for name, template, expectation in sections:
-            self.append_log(f"  處理 {name} 區塊（目標：{'展開' if expectation == 'show' else '收起'}）")
+        self.append_log("開始箭頭校正：目標 3 個收合 + 1 個展開")
 
-            result = self._calibrate_section_once(
+        # 最多嘗試 10 次，每次收合一個展開的箭頭
+        max_attempts = 10
+        for attempt in range(1, max_attempts + 1):
+            self.append_log(f"第 {attempt} 次檢查箭頭狀態...")
+
+            # 1. 尋找所有 show（展開）箭頭
+            show_locations = self._try_locate_all(
                 pyautogui_module,
-                name=name,
-                template=template,
-                expectation=expectation,
-                screen_size=(screen_width, screen_height),
+                self.show_arrow_template,
+                region=target_region,
+                confidence=0.85
             )
 
-            # 檢查是否是錯誤情況
-            if "未命中模板" in result or "未找到可處理的項目" in result:
-                self.append_log(f"  ⚠ {name} 處理異常：{result}")
+            # 2. 尋找所有 hide（收合）箭頭
+            hide_locations = self._try_locate_all(
+                pyautogui_module,
+                self.hide_arrow_template,
+                region=target_region,
+                confidence=0.85
+            )
+
+            show_count = len(show_locations) if show_locations else 0
+            hide_count = len(hide_locations) if hide_locations else 0
+
+            self.append_log(f"  偵測到：{show_count} 個展開箭頭、{hide_count} 個收合箭頭")
+
+            # 3. 檢查是否達到目標狀態（1 個 show + 3 個 hide）
+            if show_count == 1 and hide_count == 3:
+                self.append_log("  ✓ 箭頭狀態符合目標：1 個展開 + 3 個收合")
+                return True
+
+            # 4. 如果有超過 1 個 show，需要收合最上面的幾個
+            if show_count > 1:
+                # 按 Y 座標排序，從上到下
+                show_locations_sorted = sorted(
+                    show_locations,
+                    key=lambda loc: self._box_to_tuple(loc)[1] if self._box_to_tuple(loc) else float('inf')
+                )
+
+                # 收合第一個（最上面的）展開箭頭
+                first_show = show_locations_sorted[0]
+                location_tuple = self._box_to_tuple(first_show)
+
+                if location_tuple:
+                    click_x = location_tuple[0] + location_tuple[2] / 2
+                    click_y = location_tuple[1] + location_tuple[3] / 2
+
+                    self.append_log(f"  → 點擊收合展開箭頭於 ({int(click_x)}, {int(click_y)})")
+                    pyautogui_module.click(click_x, click_y)
+                    time.sleep(1.0)  # 等待動畫完成
+                    continue
+
+            # 5. 如果所有都是 hide（0 個 show），需要展開最下面的一個（好友）
+            if show_count == 0 and hide_count >= 3:
+                # 按 Y 座標排序，從上到下
+                hide_locations_sorted = sorted(
+                    hide_locations,
+                    key=lambda loc: self._box_to_tuple(loc)[1] if self._box_to_tuple(loc) else float('inf')
+                )
+
+                # 展開最後一個（最下面的）收合箭頭，應該是好友
+                if len(hide_locations_sorted) >= 3:
+                    last_hide = hide_locations_sorted[-1]  # 最下面的
+                    location_tuple = self._box_to_tuple(last_hide)
+
+                    if location_tuple:
+                        click_x = location_tuple[0] + location_tuple[2] / 2
+                        click_y = location_tuple[1] + location_tuple[3] / 2
+
+                        self.append_log(f"  → 點擊展開收合箭頭於 ({int(click_x)}, {int(click_y)})")
+                        pyautogui_module.click(click_x, click_y)
+                        time.sleep(1.0)  # 等待動畫完成
+                        continue
+
+            # 6. 其他情況：嘗試智能調整
+            self.append_log(f"  ⚠ 當前狀態不符合目標，繼續調整...")
+
+            # 如果 show 太多，收合多餘的
+            if show_count > 1:
+                continue  # 已經在上面處理過了
+
+            # 如果找不到足夠的箭頭
+            if show_count + hide_count < 4:
+                self.append_log(f"  ⚠ 偵測到的箭頭總數不足 4 個（共 {show_count + hide_count} 個）")
+                self.append_log(f"  → 可能是模板問題或介面未完全顯示")
                 return False
 
-            self.append_log(f"  ✓ {name} 處理完成")
-            time.sleep(0.3)  # 每個區塊之間稍微延遲
-
-        self.append_log("  ✓ 箭頭校正完成")
-        return True
+        # 超過最大嘗試次數
+        self.append_log(f"  ✗ 已嘗試 {max_attempts} 次，仍無法達到目標狀態")
+        return False
 
     def _send_message_to_current_chat(
         self,
