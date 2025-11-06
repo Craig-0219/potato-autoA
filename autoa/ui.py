@@ -1017,47 +1017,66 @@ class AutoaApp:
 
                 try:
                     import pyperclip
+                    from PIL import Image
 
-                    # 保存當前剪貼簿內容（訊息文字）
-                    saved_clipboard = None
+                    # 方法1：嘗試使用剪貼簿直接複製圖片
                     try:
-                        saved_clipboard = pyperclip.paste()
-                    except:
-                        pass
+                        # 使用 PIL 打開圖片
+                        img = Image.open(abs_image_path)
 
-                    # 使用 Ctrl+O 快捷鍵打開文件選擇器
-                    pyautogui_module.hotkey('ctrl', 'o')
-                    time.sleep(1.0)  # 等待文件選擇對話框出現
+                        # Windows: 使用 win32clipboard 複製圖片到剪貼簿
+                        import io
+                        import win32clipboard
+                        from PIL import ImageGrab
 
-                    # 使用剪貼簿來處理路徑（支持中文和特殊字符）
-                    pyperclip.copy(abs_image_path)
-                    time.sleep(0.1)
+                        output = io.BytesIO()
+                        img.convert("RGB").save(output, "BMP")
+                        data = output.getvalue()[14:]  # BMP 文件頭是 14 字節
+                        output.close()
 
-                    # 在文件名輸入框中貼上路徑（Ctrl+V）
-                    pyautogui_module.hotkey('ctrl', 'v')
-                    time.sleep(0.5)
+                        win32clipboard.OpenClipboard()
+                        win32clipboard.EmptyClipboard()
+                        win32clipboard.SetClipboardData(win32clipboard.CF_DIB, data)
+                        win32clipboard.CloseClipboard()
 
-                    # 按 Enter 確認選擇
-                    pyautogui_module.press('enter')
-                    time.sleep(1.2)  # 等待圖片加載並顯示在輸入框
+                        # 貼上圖片
+                        time.sleep(0.3)
+                        pyautogui_module.hotkey('ctrl', 'v')
+                        time.sleep(1.0)
 
-                    # 恢復剪貼簿內容（訊息文字）
-                    if saved_clipboard:
+                        self.append_log(f"  ✓ 圖片已附加（方法1：剪貼簿）")
+
+                    except Exception as e1:
+                        # 方法2：使用拖放功能
+                        self.append_log(f"  → 方法1失敗（{e1}），嘗試方法2：文件拖放")
+
+                        # 保存當前剪貼簿內容
+                        saved_clipboard = None
                         try:
-                            pyperclip.copy(saved_clipboard)
+                            saved_clipboard = pyperclip.paste()
                         except:
                             pass
 
-                    self.append_log(f"  ✓ 圖片已附加")
+                        # 複製文件路徑並模擬拖放
+                        pyperclip.copy(abs_image_path)
+                        time.sleep(0.1)
+
+                        # 使用 Ctrl+V 直接貼上（某些版本的 LINE 支持貼上文件路徑）
+                        pyautogui_module.hotkey('ctrl', 'v')
+                        time.sleep(1.5)
+
+                        # 恢復剪貼簿
+                        if saved_clipboard:
+                            try:
+                                pyperclip.copy(saved_clipboard)
+                            except:
+                                pass
+
+                        self.append_log(f"  ✓ 圖片已附加（方法2：路徑貼上）")
 
                 except Exception as e:
                     self.append_log(f"  ✗ 圖片附加失敗：{e}")
-                    # 如果附加失敗，按 ESC 關閉可能開啟的對話框
-                    try:
-                        pyautogui_module.press('escape')
-                        time.sleep(0.3)
-                    except:
-                        pass
+                    self.append_log(f"  → 建議：請手動測試在 LINE 聊天窗口中如何附加圖片")
                     # 即使附加失敗，仍然繼續發送文字訊息
 
             # 5. 發送訊息
