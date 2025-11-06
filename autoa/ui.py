@@ -864,11 +864,14 @@ class AutoaApp:
             time.sleep(0.5)
 
             opened_count = 0
+            clicked_count = 0  # 記錄點擊 greenchat 的次數
             max_attempts = friend_count * 3  # 最多嘗試 3 倍數量，防止無限循環
 
             # 5. 開始循環檢測和導航
             for attempt in range(max_attempts):
-                self.append_log(f"檢測第 {attempt + 1} 位好友...")
+                # 每個好友都算進度
+                opened_count += 1
+                self.append_log(f"檢測第 {opened_count} 位好友（共 {friend_count} 位）...")
 
                 # 檢測是否有 greenchat.png
                 greenchat_location = self._try_locate(pyautogui, self.greenchat_template, confidence=0.85)
@@ -880,22 +883,22 @@ class AutoaApp:
                         click_x = greenchat_coords[0] + greenchat_coords[2] // 2
                         click_y = greenchat_coords[1] + greenchat_coords[3] // 2
 
-                        self.append_log(f"第 {opened_count + 1} 位好友：檢測到綠色聊天框於 ({click_x}, {click_y})，點擊開啟")
+                        self.append_log(f"第 {opened_count} 位好友：檢測到綠色聊天框於 ({click_x}, {click_y})，點擊開啟")
                         pyautogui.click(click_x, click_y)
-                        opened_count += 1
+                        clicked_count += 1
 
                         # 短暫等待聊天視窗打開
                         time.sleep(0.5)
 
-                        self.append_log(f"已開啟聊天視窗，當前進度 {opened_count}/{friend_count}")
-
-                        # 檢查是否已達目標數量
-                        if opened_count >= friend_count:
-                            self.append_log(f"已成功開啟 {opened_count} 位好友的聊天窗")
-                            break
+                        self.append_log(f"已點擊開啟聊天視窗（已點擊 {clicked_count} 次）")
                 else:
-                    # 沒有綠色聊天框，跳過
-                    self.append_log(f"當前好友無綠色聊天框，跳過")
+                    # 沒有綠色聊天框（可能已經開啟過）
+                    self.append_log(f"第 {opened_count} 位好友：無綠色聊天框（可能已開啟過）")
+
+                # 檢查是否已達目標數量
+                if opened_count >= friend_count:
+                    self.append_log(f"已完成 {opened_count} 位好友的處理（點擊 greenchat {clicked_count} 次）")
+                    break
 
                 # 使用方向鍵下移到下一個好友
                 pyautogui.press('down')
@@ -903,9 +906,9 @@ class AutoaApp:
 
             # 6. 完成報告
             if opened_count >= friend_count:
-                self.root.after(0, lambda: messagebox.showinfo('測試完成', f'成功開啟 {opened_count} 位好友的聊天視窗。'))
+                self.root.after(0, lambda: messagebox.showinfo('測試完成', f'已處理 {opened_count} 位好友，點擊 greenchat {clicked_count} 次。'))
             else:
-                self.root.after(0, lambda: messagebox.showwarning('測試完成', f'僅開啟 {opened_count} 位好友的聊天視窗（目標：{friend_count}）。'))
+                self.root.after(0, lambda: messagebox.showwarning('測試完成', f'僅處理 {opened_count} 位好友（目標：{friend_count}），點擊 greenchat {clicked_count} 次。'))
 
         except Exception as exc:
             self.append_log(f'聊天測試發生錯誤：{exc}')
