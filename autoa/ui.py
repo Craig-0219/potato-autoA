@@ -949,20 +949,8 @@ class AutoaApp:
                         if click_success:
                             clicked_count += 1
                             self.append_log(f"✓ 成功點擊綠色按鈕（累計 {clicked_count} 次）")
-
                             # 等待聊天視窗打開
                             time.sleep(0.5)
-
-                            # 重要：點擊好友列表區域恢復焦點，這樣方向鍵才能繼續使用
-                            # 估算當前好友在列表中的Y坐標（每個好友項約50像素高）
-                            friend_item_height = 50
-                            current_friend_y = first_friend_y + (opened_count - 1) * friend_item_height
-                            focus_x = first_friend_x - 30  # 點擊好友名稱左側一點，避免誤觸其他按鈕
-                            focus_y = current_friend_y
-
-                            pyautogui.click(focus_x, focus_y)
-                            self.append_log(f"  → 恢復焦點並重新選中第 {opened_count} 位好友於 ({focus_x}, {focus_y})")
-                            time.sleep(0.3)
                         else:
                             self.append_log(f"✗ 點擊失敗，按鈕未消失（請檢查 {matched_path}）")
                 else:
