@@ -71,7 +71,7 @@ class AutoaApp:
         self.pause_condition = threading.Condition()
         self.worker_thread: threading.Thread | None = None
 
-        self.log_text: ScrolledText | None = None
+        self.log_text: tk.Text | None = None
         self.progress_bar: ttk.Progressbar | None = None
         self.log_lines: deque[str] = deque(maxlen=LOG_CAPACITY)
 
@@ -254,7 +254,7 @@ class AutoaApp:
 
         ttk.Label(frame, textvariable=self.current_step_var).grid(row=1, column=0, sticky="w", pady=(6, 0))
 
-        self.log_text = ScrolledText(frame, height=10, wrap="word", state="disabled")
+        self.log_text = tk.Text(frame, height=10, wrap="word", state="disabled")
         self.log_text.grid(row=3, column=0, sticky="nsew", pady=(8, 0))
 
         button_frame = ttk.Frame(frame)
