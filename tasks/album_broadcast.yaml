@@ -1,0 +1,21 @@
+name: Album Broadcast
+schedule: manual
+vars:
+  album_dir: data/album_2025W44
+  album_title: "Weekly Highlights"
+steps:
+  - focus_app: { name: "LINE" }
+  - ensure_logged_in: {}
+  - locate_click:
+      templates: ["templates/btn_album.png"]
+      threshold: 0.92
+  - upload_dir: { path: "{{ album_dir }}" }
+  - wait: { sec: [1.5, 3.0] }
+  - type_text: { text: "{{ album_title }}" }
+  - press: { keys: ["enter"] }
+
+for_each_recipient:
+  source: lists/recipients.csv
+  skip_if_blacklisted: true
+  blacklist_path: lists/blacklist.csv
+  steps_ref: steps

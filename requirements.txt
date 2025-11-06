@@ -1,0 +1,10 @@
+pyautogui
+opencv-python
+numpy
+pillow
+pywinauto
+pytesseract
+apscheduler
+python-dotenv
+pyyaml
+loguru

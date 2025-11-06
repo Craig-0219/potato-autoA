@@ -1,0 +1,27 @@
+screen:
+  width: 1920
+  height: 1080
+  dpi_scale: 1.0
+
+vision:
+  default_threshold: 0.92
+  timeout_sec: 10
+  retries: 2
+  search_region: null
+
+delays:
+  click_ms: [60, 120]
+  type_ms: [40, 80]
+  random_jitter_ms: [100, 600]
+
+throttle:
+  max_recipients_per_run: 25
+  min_interval_sec: [3, 6]
+  daily_cap: 200
+
+paths:
+  templates: templates
+  logs: logs
+  reports: reports
+  tasks: tasks
+
