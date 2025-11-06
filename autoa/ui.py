@@ -511,12 +511,16 @@ class AutoaApp:
                 self.root.after(0, lambda: self._on_worker_finished(False))
                 return
 
-            first_friend_x = friend_coords[0] + friend_coords[2] // 2
+            first_friend_x = friend_coords[0] + friend_coords[2] // 2 + 40  # 往右移動 40 像素
             first_friend_y = friend_coords[1] + friend_coords[3] + 20
 
             pyautogui.click(first_friend_x, first_friend_y)
             self.append_log(f"已選中第一個好友於 ({first_friend_x}, {first_friend_y})")
             time.sleep(0.5)
+
+            # 確保 LINE 視窗保持焦點
+            self._ensure_line_focus(pyautogui)
+            time.sleep(0.3)
 
             # 4. 開始循環處理每個好友
             self._set_current_step("發送訊息中")
@@ -536,6 +540,9 @@ class AutoaApp:
                 self._set_progress(progress)
 
                 self.append_log(f"\n處理第 {current_num}/{friend_count} 位好友...")
+
+                # 確保 LINE 視窗有焦點
+                self._ensure_line_focus(pyautogui)
                 time.sleep(0.3)
 
                 # 檢測 greenchat.png
@@ -545,12 +552,20 @@ class AutoaApp:
                     # 有綠色按鈕，需要點擊打開聊天窗口
                     greenchat_coords = self._box_to_tuple(greenchat_location)
                     if greenchat_coords:
+                        # 點擊前再次確保焦點
+                        self._ensure_line_focus(pyautogui)
+                        time.sleep(0.2)
+
                         click_x = greenchat_coords[0] + greenchat_coords[2] // 2
                         click_y = greenchat_coords[1] + greenchat_coords[3] // 2
 
                         self.append_log(f"  → 檢測到綠色按鈕，點擊開啟聊天窗口")
                         pyautogui.click(click_x, click_y)
                         time.sleep(1.2)
+
+                        # 點擊後再次確保焦點
+                        self._ensure_line_focus(pyautogui)
+                        time.sleep(0.2)
 
                         # 驗證按鈕消失
                         check_location = self._try_locate(pyautogui, self.greenchat_template, confidence=0.90)
@@ -804,7 +819,7 @@ class AutoaApp:
                 return
 
             # 3. 計算第一個好友的點擊位置（標題下方一點點）
-            first_friend_x = friend_coords[0] + friend_coords[2] // 2
+            first_friend_x = friend_coords[0] + friend_coords[2] // 2 + 40  # 往右移動 40 像素
             first_friend_y = friend_coords[1] + friend_coords[3] + 20  # 標題下方 20 像素
 
             self.append_log(f"準備點擊第一個好友位置：({first_friend_x}, {first_friend_y})")
@@ -812,6 +827,10 @@ class AutoaApp:
             # 4. 點擊第一個好友選中它（不會打開聊天窗）
             pyautogui.click(first_friend_x, first_friend_y)
             time.sleep(0.5)
+
+            # 確保 LINE 視窗保持焦點
+            self._ensure_line_focus(pyautogui)
+            time.sleep(0.3)
 
             opened_count = 0
             clicked_count = 0  # 記錄點擊 greenchat 的次數
@@ -822,6 +841,9 @@ class AutoaApp:
                 # 每個好友都算進度
                 opened_count += 1
                 self.append_log(f"檢測第 {opened_count} 位好友（共 {friend_count} 位）...")
+
+                # 確保 LINE 視窗有焦點
+                self._ensure_line_focus(pyautogui)
 
                 # 短暫等待讓 UI 穩定
                 time.sleep(0.3)
@@ -859,10 +881,18 @@ class AutoaApp:
                         except Exception as e:
                             self.append_log(f"  → 保存調試截圖失敗: {e}")
 
+                        # 點擊前確保焦點
+                        self._ensure_line_focus(pyautogui)
+                        time.sleep(0.2)
+
                         # 點擊按鈕
                         pyautogui.click(click_x, click_y)
                         self.append_log(f"  → 點擊於 ({click_x}, {click_y})")
                         time.sleep(1.2)  # 增加延遲，等待聊天窗口打開
+
+                        # 點擊後確保焦點
+                        self._ensure_line_focus(pyautogui)
+                        time.sleep(0.2)
 
                         # 檢查是否成功（按鈕消失）
                         check_location = self._try_locate(pyautogui, self.greenchat_template, confidence=0.90)
@@ -903,29 +933,22 @@ class AutoaApp:
         except Exception:
             screen_width = screen_height = None
 
-        self.append_log("開始箭頭校正：目標 3 個收合 + 1 個展開")
+        self.append_log("開始箭頭校正：先收合所有箭頭，再展開最下面的一個（好友區塊）")
+
+        # 獲取 LINE 視窗範圍
+        line_region = self._get_line_window_region(pyautogui_module)
+        if line_region:
+            left, top, width, height = line_region
+            self.append_log(f"  → LINE 視窗範圍：X={left}, Y={top}, 寬={width}, 高={height}")
+            target_region = line_region
+        else:
+            self.append_log("  → 無法獲取 LINE 視窗範圍，使用全螢幕搜尋")
+            target_region = None
 
         # 先滾動到最上方，確保所有箭頭都在可見範圍內
         self.append_log("  → 滾動左側面板到頂部")
         self._scroll_left_panel_to_top(pyautogui_module)
         time.sleep(0.5)  # 等待滾動完成
-
-        # 動態偵測左側面板寬度（使用 friend-list 按鈕位置）
-        friend_list_location = self._try_locate(pyautogui_module, self.friend_list_template, confidence=0.88)
-        if friend_list_location:
-            coords = self._box_to_tuple(friend_list_location)
-            if coords:
-                # 左側面板寬度 = friend-list 按鈕的右邊界 + 200 像素餘量
-                left_panel_width = int(coords[0] + coords[2] + 200)
-                self.append_log(f"  → 動態偵測左側面板寬度：{left_panel_width} 像素（基於 friend-list 按鈕位置）")
-            else:
-                left_panel_width = 500
-                self.append_log(f"  → 無法解析 friend-list 位置，使用預設寬度：{left_panel_width} 像素")
-        else:
-            left_panel_width = 500
-            self.append_log(f"  → 未偵測到 friend-list 按鈕，使用預設寬度：{left_panel_width} 像素")
-
-        target_region = (0, 0, left_panel_width, screen_height) if screen_height else None
 
         # === 初始診斷：檢查當前箭頭狀態 ===
         self.append_log("  → 初始診斷：檢查當前箭頭狀態")
@@ -947,6 +970,11 @@ class AutoaApp:
         initial_hide_count = len(initial_hide) if initial_hide else 0
 
         self.append_log(f"    初始狀態：{initial_show_count} 個展開箭頭、{initial_hide_count} 個收合箭頭")
+
+        if target_region:
+            self.append_log(f"    搜尋範圍：LINE 視窗內 ({target_region[2]}x{target_region[3]} 像素)")
+        else:
+            self.append_log(f"    搜尋範圍：全螢幕")
 
         if initial_show and initial_show_count > 0:
             self.append_log(f"    展開箭頭位置：")
@@ -1056,11 +1084,37 @@ class AutoaApp:
                 if coords:
                     self.append_log(f"      收合箭頭 {i} 位於 Y={int(coords[1])}")
 
-        if hide_count < 3:
-            self.append_log(f"  ✗ 收合箭頭數量不足（需要至少 3 個，實際 {hide_count} 個）")
-            self.append_log(f"  → hide.png 模板無法匹配收合箭頭")
-            self.append_log(f"  → 請重新截取 hide.png：只截取收合箭頭（→）本身，約 20x20 像素")
+        if hide_count == 0:
+            self.append_log(f"  ✗ 沒有偵測到任何收合箭頭")
+            self.append_log(f"  → 可能原因：")
+            self.append_log(f"     1. hide.png 模板無法匹配 LINE 中的收合箭頭樣式")
+            self.append_log(f"     2. LINE 視窗被其他視窗遮擋")
+            self.append_log(f"     3. 螢幕縮放比例不是 100%")
+            self.append_log(f"  → 解決方法：")
+            self.append_log(f"     1. 重新截取 hide.png：只截取收合箭頭（→）本身，約 20x20 像素")
+            self.append_log(f"     2. 確保 LINE 視窗完全可見且沒有被遮擋")
+            self.append_log(f"     3. 檢查 Windows 顯示設定，確認縮放比例為 100%")
+
+            # 截圖診斷
+            try:
+                import datetime
+                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                screenshot_path = f"debug_line_window_{timestamp}.png"
+                if target_region:
+                    # 截取 LINE 視窗範圍
+                    screenshot = pyautogui_module.screenshot(region=target_region)
+                else:
+                    # 截取全螢幕
+                    screenshot = pyautogui_module.screenshot()
+                screenshot.save(screenshot_path)
+                self.append_log(f"  → 已保存診斷截圖：{screenshot_path}")
+                self.append_log(f"     請檢查截圖，確認 LINE 側邊欄的箭頭是否可見")
+            except Exception as exc:
+                self.append_log(f"  → 保存診斷截圖失敗：{exc}")
+
             return False
+
+        self.append_log(f"  ✓ 找到 {hide_count} 個收合箭頭，準備展開最下面的一個")
 
         # === 第三階段：展開最下面的箭頭（好友）===
         self.append_log("  階段 3：展開好友區塊（最下面的箭頭）")
@@ -1105,11 +1159,11 @@ class AutoaApp:
 
         self.append_log(f"    最終狀態：{show_count} 個展開箭頭、{hide_count} 個收合箭頭")
 
-        if show_count == 1 and hide_count == 3:
-            self.append_log("  ✓ 箭頭校正成功：1 個展開 + 3 個收合")
+        if show_count >= 1:
+            self.append_log(f"  ✓ 箭頭校正成功：至少 1 個展開箭頭（好友區塊）")
             return True
         else:
-            self.append_log(f"  ⚠ 最終狀態不符合目標（目標：1 展開 + 3 收合）")
+            self.append_log(f"  ⚠ 未偵測到展開箭頭，好友區塊可能未展開")
             return False
 
     def _send_message_to_current_chat(
@@ -1121,6 +1175,9 @@ class AutoaApp:
     ) -> bool:
         """發送訊息到當前打開的聊天窗口"""
         try:
+            # 確保 LINE 視窗有焦點
+            self._ensure_line_focus(pyautogui_module)
+
             # 1. 找到訊息輸入框（使用 message_cube.png 模板）
             message_cube_location = self._try_locate(pyautogui_module, self.message_cube_template, confidence=0.85)
 
@@ -1140,13 +1197,29 @@ class AutoaApp:
             pyautogui_module.click(input_x, input_y)
             time.sleep(0.2)
 
+            # 確保焦點在點擊後仍然在 LINE
+            self._ensure_line_focus(pyautogui_module)
+            time.sleep(0.1)
+
             # 3. 貼上訊息文字（使用剪貼簿）
             if message:
                 try:
                     import pyperclip
+
+                    self.append_log("  → 準備複製訊息到剪貼簿")
                     pyperclip.copy(message)
+
+                    # 剪貼簿操作後立即確保焦點（防止剪貼簿工具搶焦點）
+                    self._ensure_line_focus(pyautogui_module)
+                    time.sleep(0.1)
+
+                    self.append_log("  → 貼上訊息")
                     pyautogui_module.hotkey('ctrl', 'v')
                     time.sleep(0.3)
+
+                    # 貼上後再次確保焦點
+                    self._ensure_line_focus(pyautogui_module)
+
                 except ImportError:
                     self.append_log("  ⚠ pyperclip 未安裝，無法貼上訊息")
                     return False
@@ -1182,10 +1255,17 @@ class AutoaApp:
                         win32clipboard.SetClipboardData(win32clipboard.CF_DIB, data)
                         win32clipboard.CloseClipboard()
 
+                        # 剪貼簿操作後確保焦點
+                        self._ensure_line_focus(pyautogui_module)
+                        time.sleep(0.2)
+
                         # 貼上圖片
-                        time.sleep(0.3)
+                        self.append_log(f"  → 貼上圖片")
                         pyautogui_module.hotkey('ctrl', 'v')
                         time.sleep(1.0)
+
+                        # 貼上後確保焦點
+                        self._ensure_line_focus(pyautogui_module)
 
                         self.append_log(f"  ✓ 圖片已附加（方法1：剪貼簿）")
 
@@ -1202,11 +1282,17 @@ class AutoaApp:
 
                         # 複製文件路徑並模擬拖放
                         pyperclip.copy(abs_image_path)
+
+                        # 剪貼簿操作後確保焦點
+                        self._ensure_line_focus(pyautogui_module)
                         time.sleep(0.1)
 
                         # 使用 Ctrl+V 直接貼上（某些版本的 LINE 支持貼上文件路徑）
                         pyautogui_module.hotkey('ctrl', 'v')
                         time.sleep(1.5)
+
+                        # 貼上後確保焦點
+                        self._ensure_line_focus(pyautogui_module)
 
                         # 恢復剪貼簿
                         if saved_clipboard:
@@ -1223,6 +1309,10 @@ class AutoaApp:
                     # 即使附加失敗，仍然繼續發送文字訊息
 
             # 5. 發送訊息
+            # 發送前最後一次確保焦點
+            self._ensure_line_focus(pyautogui_module)
+            time.sleep(0.1)
+
             if dry_run:
                 self.append_log("  → 乾跑模式：不實際發送")
                 # 選取全部內容（Ctrl+A）然後刪除（Delete）
@@ -1232,6 +1322,7 @@ class AutoaApp:
                 time.sleep(0.5)
                 return True
             else:
+                self.append_log("  → 發送訊息")
                 # 按 Enter 發送
                 pyautogui_module.press('enter')
                 time.sleep(0.5)
@@ -1265,7 +1356,7 @@ class AutoaApp:
         success = self._calibrate_arrows_for_friend_only(pyautogui)
 
         if success:
-            messagebox.showinfo("箭頭校正結果", "✓ 箭頭校正成功：3 個收合 + 1 個展開")
+            messagebox.showinfo("箭頭校正結果", "✓ 箭頭校正成功：已展開好友區塊")
         else:
             messagebox.showwarning("箭頭校正結果", "✗ 箭頭校正失敗，請查看日誌")
 
@@ -1940,6 +2031,55 @@ class AutoaApp:
             return False
 
         return True
+
+    def _ensure_line_focus(self, pyautogui_module: Any) -> bool:
+        """輕量級的 LINE 視窗焦點檢查和恢復"""
+        try:
+            windows = pyautogui_module.getWindowsWithTitle("LINE")
+            if not windows:
+                return False
+
+            window = windows[0]
+
+            # 檢查視窗是否最小化
+            if getattr(window, "isMinimized", False):
+                window.restore()
+                time.sleep(0.3)
+
+            # 主動激活視窗（不檢查是否已活動，直接激活）
+            window.activate()
+            time.sleep(0.2)
+
+            return True
+        except Exception:
+            return False
+
+    def _get_line_window_region(self, pyautogui_module: Any) -> tuple[int, int, int, int] | None:
+        """獲取 LINE 視窗的區域範圍 (left, top, width, height)"""
+        try:
+            windows = pyautogui_module.getWindowsWithTitle("LINE")
+        except Exception as exc:
+            self.append_log(f"取得 LINE 視窗失敗：{exc}")
+            return None
+
+        if not windows:
+            return None
+
+        window = windows[0]
+        try:
+            left = getattr(window, "left", 0)
+            top = getattr(window, "top", 0)
+            width = getattr(window, "width", 800)
+            height = getattr(window, "height", 600)
+
+            # 確保座標有效
+            if width <= 0 or height <= 0:
+                return None
+
+            return (left, top, width, height)
+        except Exception as exc:
+            self.append_log(f"獲取 LINE 視窗範圍失敗：{exc}")
+            return None
 
     def _on_close(self) -> None:
         if self.running:
