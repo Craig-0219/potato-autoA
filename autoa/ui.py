@@ -876,8 +876,16 @@ class AutoaApp:
                 # 短暫等待讓 UI 穩定
                 time.sleep(0.3)
 
-                # 檢測是否有 greenchat.png（降低信心度以提高檢測準確性）
-                greenchat_location = self._try_locate(pyautogui, self.greenchat_template, confidence=0.80)
+                # 檢測是否有 greenchat.png（使用多個信心度嘗試）
+                greenchat_location = None
+                for conf in [0.80, 0.75, 0.70]:
+                    greenchat_location = self._try_locate(pyautogui, self.greenchat_template, confidence=conf)
+                    if greenchat_location:
+                        self.append_log(f"  → greenchat.png 匹配成功（信心度 {conf}）")
+                        break
+
+                if not greenchat_location:
+                    self.append_log(f"  → greenchat.png 未匹配到（已嘗試信心度 0.80/0.75/0.70）")
 
                 if greenchat_location:
                     # 有綠色聊天框，點擊 greenchat.png 按鈕本身
