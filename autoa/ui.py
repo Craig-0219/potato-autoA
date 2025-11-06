@@ -1204,21 +1204,46 @@ class AutoaApp:
             self.append_log(f"箭頭檢測區域: 錨點=({box[0]}, {box[1]}, {box[2]}x{box[3]}), 搜索=({region[0]}, {region[1]}, {region[2]}x{region[3]})")
 
         # Try to detect hide arrow (收合) first
-        hide_box = self._locate_arrow(pyautogui_module, self.hide_arrow_template, region, anchor_box)
+        hide_box = self._locate_arrow(pyautogui_module, self.hide_arrow_template, region, anchor_box, save_debug_screenshot=False)
         if hide_box is not None:
             hide_coords = self._box_to_tuple(hide_box)
             self.append_log(f"✓ 檢測到收合箭頭 (hide) 於 ({hide_coords[0]}, {hide_coords[1]})")
             return 'hide'
 
         # Try to detect show arrow (展開)
-        show_box = self._locate_arrow(pyautogui_module, self.show_arrow_template, region, anchor_box)
+        show_box = self._locate_arrow(pyautogui_module, self.show_arrow_template, region, anchor_box, save_debug_screenshot=False)
         if show_box is not None:
             show_coords = self._box_to_tuple(show_box)
             self.append_log(f"✓ 檢測到展開箭頭 (show) 於 ({show_coords[0]}, {show_coords[1]})")
             return 'show'
 
+        # 兩種箭頭都找不到，保存截圖供調試
         self.append_log("✗ 未檢測到任何箭頭狀態（hide 和 show 模板皆未匹配）")
+        self._save_debug_screenshot(pyautogui_module, region, "both_arrows")
         return None
+
+    def _save_debug_screenshot(
+        self,
+        pyautogui_module: Any,
+        region: tuple[int, int, int, int] | None,
+        template_name: str,
+    ) -> None:
+        """保存搜索區域截圖供調試"""
+        if region is None:
+            return
+
+        try:
+            import time
+            from pathlib import Path as PathLib
+            screenshot = pyautogui_module.screenshot(region=region)
+            debug_dir = PathLib("reports/arrow_debug")
+            debug_dir.mkdir(parents=True, exist_ok=True)
+            timestamp = time.strftime("%Y%m%d-%H%M%S")
+            debug_path = debug_dir / f"arrow_search_{template_name}_{timestamp}.png"
+            screenshot.save(debug_path)
+            self.append_log(f"已保存搜索區域截圖至 {debug_path} 供調試")
+        except Exception as e:
+            self.append_log(f"保存調試截圖失敗: {e}")
 
     def _arrow_region(
         self,
@@ -1248,6 +1273,7 @@ class AutoaApp:
         template_path: Path,
         region: tuple[int, int, int, int] | None,
         anchor_box: Any,
+        save_debug_screenshot: bool = True,
     ) -> Any:
         anchor_tuple = self._box_to_tuple(anchor_box)
         screen_width, screen_height = pyautogui_module.size()
@@ -1332,24 +1358,7 @@ class AutoaApp:
                 self.append_log(f"模板 {template_path.name} 以 OpenCV 灰階比對命中（閾值 0.55）。")
                 return loc
 
-        # 如果仍然失敗，輸出調試信息並保存截圖供調試
-        self.append_log(f"✗ 模板 {template_path.name} 在搜索區域內未找到合理位置的匹配")
-
-        # 保存搜索區域截圖供調試
-        if region is not None:
-            try:
-                import time
-                from pathlib import Path as PathLib
-                screenshot = pyautogui_module.screenshot(region=region)
-                debug_dir = PathLib("reports/arrow_debug")
-                debug_dir.mkdir(parents=True, exist_ok=True)
-                timestamp = time.strftime("%Y%m%d-%H%M%S")
-                debug_path = debug_dir / f"arrow_search_{template_path.stem}_{timestamp}.png"
-                screenshot.save(debug_path)
-                self.append_log(f"已保存搜索區域截圖至 {debug_path} 供調試")
-            except Exception as e:
-                self.append_log(f"保存調試截圖失敗: {e}")
-
+        # 如果仍然失敗，返回 None（不保存截圖，由上層決定）
         return None
 
     def _match_template_cv(
