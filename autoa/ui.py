@@ -107,9 +107,8 @@ class AutoaApp:
 
         self.executor = build_executor()
 
-        self.recipient_var = tk.StringVar()
-        self.recipient_choice_var = tk.StringVar()
-        self.friend_count_var = tk.StringVar(value="10")  # 新增：要開啟的好友數量
+        self.friend_count_var = tk.StringVar(value="10")  # 發送好友數量
+        self.delay_var = tk.StringVar(value="2")  # 每個好友延遲秒數
         self.message_text: ScrolledText | None = None
         self.image_var = tk.StringVar()
         self.mode_var = tk.StringVar(value="dryrun")
@@ -129,7 +128,6 @@ class AutoaApp:
         self.progress_bar: ttk.Progressbar | None = None
         self.log_lines: deque[str] = deque(maxlen=LOG_CAPACITY)
 
-        self.recipient_combo: ttk.Combobox | None = None
         self.start_button: ttk.Button | None = None
         self.pause_button: ttk.Button | None = None
         self.stop_button: ttk.Button | None = None
@@ -163,7 +161,6 @@ class AutoaApp:
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
         self._build_ui()
-        self.load_recipients()
         self.run_system_checks()
         self.refresh_line_status()
 
@@ -236,29 +233,19 @@ class AutoaApp:
         self.main_canvas.yview_scroll(direction, "units")
 
     def _build_recipient_section(self, parent: ttk.Frame) -> None:
-        frame = ttk.LabelFrame(parent, text="收件者 / 好友設定", padding=10)
+        frame = ttk.LabelFrame(parent, text="好友設定", padding=10)
         frame.grid(row=0, column=0, sticky="ew")
         frame.columnconfigure(1, weight=1)
 
-        ttk.Label(frame, text="收件者：").grid(row=0, column=0, sticky="w")
-        entry = ttk.Entry(frame, textvariable=self.recipient_var)
-        entry.grid(row=0, column=1, sticky="ew", padx=(0, 8))
-        ttk.Button(frame, text="清除", command=lambda: self.recipient_var.set("")).grid(row=0, column=2)
+        # 發送好友數量設定
+        ttk.Label(frame, text="發送好友數量：").grid(row=0, column=0, sticky="w")
+        ttk.Entry(frame, textvariable=self.friend_count_var, width=10).grid(row=0, column=1, sticky="w")
+        ttk.Label(frame, text="（每次處理的好友數量）").grid(row=0, column=2, sticky="w", padx=(8, 0))
 
-        ttk.Label(frame, text="從名單載入：").grid(row=1, column=0, sticky="w", pady=(8, 0))
-        self.recipient_combo = ttk.Combobox(
-            frame,
-            textvariable=self.recipient_choice_var,
-            state="readonly",
-        )
-        self.recipient_combo.grid(row=1, column=1, sticky="ew", pady=(8, 0))
-        self.recipient_combo.bind("<<ComboboxSelected>>", self.on_recipient_selected)
-        ttk.Button(frame, text="重新載入", command=self.load_recipients).grid(row=1, column=2, pady=(8, 0))
-
-        # 新增：開啟好友數量設定
-        ttk.Label(frame, text="開啟好友數量：").grid(row=2, column=0, sticky="w", pady=(8, 0))
-        ttk.Entry(frame, textvariable=self.friend_count_var, width=10).grid(row=2, column=1, sticky="w", pady=(8, 0))
-        ttk.Label(frame, text="（用於依序開啟聊天窗測試）").grid(row=2, column=2, sticky="w", pady=(8, 0), padx=(8, 0))
+        # 延遲設置
+        ttk.Label(frame, text="延遲設置：").grid(row=1, column=0, sticky="w", pady=(8, 0))
+        ttk.Entry(frame, textvariable=self.delay_var, width=10).grid(row=1, column=1, sticky="w", pady=(8, 0))
+        ttk.Label(frame, text="秒（每個好友之間的延遲）").grid(row=1, column=2, sticky="w", pady=(8, 0), padx=(8, 0))
 
     def _build_message_section(self, parent: ttk.Frame) -> None:
         frame = ttk.LabelFrame(parent, text="訊息內容", padding=10)
@@ -424,34 +411,6 @@ class AutoaApp:
         self.log_text.configure(state="disabled")
         self.log_text.see("end")
 
-    def load_recipients(self, *_args) -> None:
-        csv_path = Path("lists/recipients.csv")
-        values: list[str] = []
-        if csv_path.exists():
-            try:
-                with csv_path.open("r", encoding="utf-8") as handle:
-                    reader = csv.DictReader(handle)
-                    for row in reader:
-                        identifier = row.get("name") or row.get("uid")
-                        if identifier:
-                            values.append(identifier.strip())
-                if values:
-                    self.append_log(f"CSV 名單載入 {len(values)} 筆。")
-                else:
-                    self.append_log("CSV 名單為空。")
-            except Exception as exc:
-                self.append_log(f"讀取 CSV 失敗：{exc}")
-        else:
-            self.append_log("找不到 lists/recipients.csv，請先建立名單。")
-
-        if self.recipient_combo is not None:
-            self.recipient_combo["values"] = values
-
-    def on_recipient_selected(self, _event: Any) -> None:
-        choice = self.recipient_choice_var.get()
-        if choice:
-            self.recipient_var.set(choice)
-            self.append_log(f"已選擇收件者：{choice}")
 
     def browse_image(self) -> None:
         selected = filedialog.askopenfilename(
@@ -545,11 +504,7 @@ class AutoaApp:
             messagebox.showinfo("執行中", "流程已在執行。")
             return
 
-        recipient = self.recipient_var.get().strip()
-        if not recipient:
-            messagebox.showwarning("收件者", "請輸入收件者。")
-            return
-
+        # 不再需要收件者驗證，直接使用好友列表
         message = ""
         if self.message_text is not None:
             message = self.message_text.get("1.0", "end").strip()
@@ -576,6 +531,8 @@ class AutoaApp:
         self._toggle_buttons(running=True)
         self.append_log(f"開始執行流程{'（乾跑模式）' if dry_run else ''}。")
 
+        # 不再使用收件者，使用空字符串
+        recipient = ""
         self.worker_thread = threading.Thread(
             target=self._run_flow,
             args=(recipient, message, image_path, throttle, dry_run),
@@ -804,7 +761,7 @@ class AutoaApp:
             messagebox.showinfo('聊天測試', '聊天測試正在進行中，請稍候。')
             return
 
-        # 獲取要開啟的好友數量
+        # 獲取要發送的好友數量
         try:
             friend_count = int(self.friend_count_var.get())
             if friend_count <= 0:
@@ -814,17 +771,27 @@ class AutoaApp:
             messagebox.showwarning('好友數量', '請輸入有效的數字。')
             return
 
-        self.append_log(f'開始依序開啟聊天窗測試：目標開啟 {friend_count} 位好友')
+        # 獲取延遲設置
+        try:
+            delay = float(self.delay_var.get())
+            if delay < 0:
+                messagebox.showwarning('延遲設置', '延遲不能為負數。')
+                return
+        except ValueError:
+            messagebox.showwarning('延遲設置', '請輸入有效的數字。')
+            return
+
+        self.append_log(f'開始依序開啟聊天窗測試：目標處理 {friend_count} 位好友，每個好友延遲 {delay} 秒')
 
         thread = threading.Thread(
             target=self._cycle_friend_chats_worker_new,
-            args=(friend_count,),
+            args=(friend_count, delay),
             daemon=True,
         )
         self.friend_cycle_thread = thread
         thread.start()
 
-    def _cycle_friend_chats_worker_new(self, friend_count: int) -> None:
+    def _cycle_friend_chats_worker_new(self, friend_count: int, delay: float) -> None:
         """依序開啟聊天窗的 Worker 方法"""
         try:
             import pyautogui
@@ -912,7 +879,7 @@ class AutoaApp:
                         # 點擊按鈕
                         pyautogui.click(click_x, click_y)
                         self.append_log(f"  → 點擊於 ({click_x}, {click_y})")
-                        time.sleep(0.5)
+                        time.sleep(1.2)  # 增加延遲，等待聊天窗口打開
 
                         # 檢查是否成功（按鈕消失）
                         check_location = self._try_locate(pyautogui, self.greenchat_template, confidence=0.85)
@@ -932,7 +899,7 @@ class AutoaApp:
 
                 # 使用方向鍵下移到下一個好友
                 pyautogui.press('down')
-                time.sleep(0.4)
+                time.sleep(delay)
 
             # 6. 完成報告
             if opened_count >= friend_count:
