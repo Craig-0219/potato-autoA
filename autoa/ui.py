@@ -903,9 +903,13 @@ class AutoaApp:
         except Exception:
             screen_width = screen_height = None
 
-        target_region = (0, 0, screen_width, screen_height) if screen_width and screen_height else None
+        # 限制搜尋區域到左側面板（避免誤判螢幕其他地方的箭頭圖標）
+        # 假設左側面板寬度約 400 像素
+        left_panel_width = 400
+        target_region = (0, 0, left_panel_width, screen_height) if screen_height else None
 
         self.append_log("開始箭頭校正：目標 3 個收合 + 1 個展開")
+        self.append_log(f"  → 搜尋區域限制在左側面板（寬度 {left_panel_width} 像素）")
 
         # 先滾動到最上方，確保所有箭頭都在可見範圍內
         self.append_log("  → 滾動左側面板到頂部")
