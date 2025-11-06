@@ -88,8 +88,6 @@ class AutoaApp:
         self.show_arrow_template = Path("templates/show.png")
 
         self.notebook: ttk.Notebook | None = None
-        self.main_canvas: tk.Canvas | None = None
-        self.main_canvas_content: int | None = None
 
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
@@ -113,26 +111,9 @@ class AutoaApp:
         main_tab.columnconfigure(0, weight=1)
         main_tab.rowconfigure(0, weight=1)
 
-        self.main_canvas = tk.Canvas(main_tab, borderwidth=0, highlightthickness=0)
-        main_scroll = ttk.Scrollbar(main_tab, orient="vertical", command=self.main_canvas.yview)
-        self.main_canvas.grid(row=0, column=0, sticky="nsew")
-        main_scroll.grid(row=0, column=1, sticky="ns")
-        self.main_canvas.configure(yscrollcommand=main_scroll.set)
-
-        container = ttk.Frame(self.main_canvas, padding=12)
+        container = ttk.Frame(main_tab, padding=12)
+        container.grid(row=0, column=0, sticky="nsew")
         container.columnconfigure(0, weight=1)
-        self.main_canvas_content = self.main_canvas.create_window((0, 0), window=container, anchor="nw")
-
-        container.bind(
-            "<Configure>",
-            lambda event: self.main_canvas.configure(scrollregion=self.main_canvas.bbox("all")),
-        )
-        self.main_canvas.bind(
-            "<Configure>",
-            lambda event: self.main_canvas.itemconfigure(self.main_canvas_content, width=event.width),
-        )
-
-        self._bind_scroll_events()
 
         self._build_recipient_section(container)
         self._build_message_section(container)
@@ -144,24 +125,6 @@ class AutoaApp:
         test_tab.columnconfigure(0, weight=1)
         test_tab.rowconfigure(0, weight=1)
         self._build_test_shortcuts_section(test_frame)
-
-    def _bind_scroll_events(self) -> None:
-        self.root.bind_all("<MouseWheel>", self._on_mousewheel, add="+")
-        self.root.bind_all("<Button-4>", self._on_mousewheel_linux, add="+")
-        self.root.bind_all("<Button-5>", self._on_mousewheel_linux, add="+")
-
-    def _on_mousewheel(self, event: tk.Event) -> None:
-        if self.main_canvas is None:
-            return
-        delta = -int(event.delta / 120) if getattr(event, "delta", 0) else 0
-        if delta:
-            self.main_canvas.yview_scroll(delta, "units")
-
-    def _on_mousewheel_linux(self, event: tk.Event) -> None:
-        if self.main_canvas is None:
-            return
-        direction = -1 if getattr(event, "num", 0) == 4 else 1
-        self.main_canvas.yview_scroll(direction, "units")
 
     def _build_recipient_section(self, parent: ttk.Frame) -> None:
         frame = ttk.LabelFrame(parent, text="好友設定", padding=10)
