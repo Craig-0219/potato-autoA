@@ -490,41 +490,143 @@ class AutoaApp:
         throttle: tuple[float, float],
         dry_run: bool,
     ) -> None:
-        steps = [
-            "聚焦 LINE 視窗",
-            "搜尋收件者",
-            "貼上訊息內容",
-            "準備附件圖片" if image_path else None,
-            "校正側邊欄箭頭",
-            "模擬送出訊息" if dry_run else "送出訊息",
-        ]
-        sequence = [step for step in steps if step is not None]
+        """主流程：批量發送訊息給好友列表"""
+        try:
+            import pyautogui
+        except ImportError as exc:
+            self.append_log(f"無法載入 pyautogui：{exc}")
+            self.root.after(0, lambda: messagebox.showerror('執行失敗', f'無法載入 pyautogui：{exc}'))
+            self.root.after(0, lambda: self._on_worker_finished(False))
+            return
 
-        total = len(sequence) if sequence else 1
-        success = False
+        try:
+            # 獲取發送好友數量和延遲設置
+            try:
+                friend_count = int(self.friend_count_var.get())
+                delay = float(self.delay_var.get())
+            except ValueError:
+                self.append_log("參數錯誤：好友數量或延遲設置無效")
+                self.root.after(0, lambda: self._on_worker_finished(False))
+                return
 
-        for index, step in enumerate(sequence, start=1):
-            if self.stop_event.is_set():
-                break
+            self._set_current_step("準備階段")
+            self._set_progress(5.0)
 
-            if self._wait_if_paused():
-                break
+            # 1. 聚焦 LINE 視窗
+            self.append_log("步驟 1/3：聚焦 LINE 視窗")
+            if not self._focus_line_window(pyautogui):
+                self.append_log("未偵測到 LINE 視窗")
+                self.root.after(0, lambda: messagebox.showwarning('執行失敗', '未偵測到 LINE 視窗。'))
+                self.root.after(0, lambda: self._on_worker_finished(False))
+                return
 
-            self._set_current_step(step)
-            self.append_log(f"執行步驟：{step}")
+            time.sleep(0.5)
 
-            progress = index / total * 100
-            self._set_progress(progress)
+            # 2. 執行箭頭校正（只有好友列表展開）
+            self.append_log("步驟 2/3：校正側邊欄（只展開好友列表）")
+            self._set_progress(15.0)
+            if not self._calibrate_arrows_for_friend_only(pyautogui):
+                self.append_log("箭頭校正失敗")
+                self.root.after(0, lambda: messagebox.showwarning('執行失敗', '箭頭校正失敗，請確認側邊欄可見。'))
+                self.root.after(0, lambda: self._on_worker_finished(False))
+                return
 
-            simulated = random.uniform(*throttle)
-            time.sleep(simulated)
-            self.append_log(f"步驟完成，耗時 {simulated:.2f} 秒。")
+            time.sleep(0.5)
 
-        else:
-            if not self.stop_event.is_set():
-                success = True
+            # 3. 找到好友標題並點擊第一個好友
+            self.append_log("步驟 3/3：定位第一個好友")
+            self._set_progress(25.0)
+            friend_template = Path("templates/friend.png")
+            friend_location = self._try_locate(pyautogui, friend_template, confidence=0.88)
+            if friend_location is None:
+                self.append_log("未找到好友標題")
+                self.root.after(0, lambda: messagebox.showwarning('執行失敗', '未找到好友標題，請確認好友區塊已展開。'))
+                self.root.after(0, lambda: self._on_worker_finished(False))
+                return
 
-        self.root.after(0, lambda: self._on_worker_finished(success))
+            friend_coords = self._box_to_tuple(friend_location)
+            if friend_coords is None:
+                self.append_log("好友標題位置解析失敗")
+                self.root.after(0, lambda: self._on_worker_finished(False))
+                return
+
+            first_friend_x = friend_coords[0] + friend_coords[2] // 2
+            first_friend_y = friend_coords[1] + friend_coords[3] + 20
+
+            pyautogui.click(first_friend_x, first_friend_y)
+            self.append_log(f"已選中第一個好友於 ({first_friend_x}, {first_friend_y})")
+            time.sleep(0.5)
+
+            # 4. 開始循環處理每個好友
+            self._set_current_step("發送訊息中")
+            sent_count = 0
+            clicked_count = 0
+
+            for idx in range(friend_count):
+                if self.stop_event.is_set():
+                    self.append_log("用戶中止流程")
+                    break
+
+                if self._wait_if_paused():
+                    break
+
+                current_num = idx + 1
+                progress = 25.0 + (70.0 * current_num / friend_count)
+                self._set_progress(progress)
+
+                self.append_log(f"\n處理第 {current_num}/{friend_count} 位好友...")
+                time.sleep(0.3)
+
+                # 檢測 greenchat.png
+                greenchat_location = self._try_locate(pyautogui, self.greenchat_template, confidence=0.95)
+
+                if greenchat_location:
+                    # 有綠色按鈕，需要點擊打開聊天窗口
+                    greenchat_coords = self._box_to_tuple(greenchat_location)
+                    if greenchat_coords:
+                        click_x = greenchat_coords[0] + greenchat_coords[2] // 2
+                        click_y = greenchat_coords[1] + greenchat_coords[3] // 2
+
+                        self.append_log(f"  → 檢測到綠色按鈕，點擊開啟聊天窗口")
+                        pyautogui.click(click_x, click_y)
+                        time.sleep(1.2)
+
+                        # 驗證按鈕消失
+                        check_location = self._try_locate(pyautogui, self.greenchat_template, confidence=0.90)
+                        if not check_location:
+                            clicked_count += 1
+                            self.append_log(f"  ✓ 聊天窗口已開啟")
+                        else:
+                            self.append_log(f"  ⚠ 開啟可能失敗")
+
+                # 發送訊息
+                if self._send_message_to_current_chat(pyautogui, message, image_path, dry_run):
+                    sent_count += 1
+                    self.append_log(f"  ✓ 訊息已發送（累計 {sent_count} 次）")
+                else:
+                    self.append_log(f"  ✗ 訊息發送失敗")
+
+                # 延遲後切換到下一個好友
+                if current_num < friend_count:
+                    self.append_log(f"  → 延遲 {delay} 秒後切換到下一位好友")
+                    time.sleep(delay)
+                    pyautogui.press('down')
+                    time.sleep(0.3)
+
+            # 5. 完成
+            self._set_progress(100.0)
+            self._set_current_step("完成")
+            self.append_log(f"\n流程完成！處理了 {friend_count} 位好友，發送了 {sent_count} 次訊息")
+            self.root.after(0, lambda: messagebox.showinfo('流程完成',
+                f'已處理 {friend_count} 位好友\n成功發送 {sent_count} 次訊息\n點擊綠色按鈕 {clicked_count} 次'))
+            self.root.after(0, lambda: self._on_worker_finished(True))
+
+        except Exception as exc:
+            self.append_log(f'流程發生錯誤：{exc}')
+            import traceback
+            self.append_log(traceback.format_exc())
+            self.root.after(0, lambda err=exc: messagebox.showerror('執行失敗', f'執行失敗：{err}'))
+            self.root.after(0, lambda: self._on_worker_finished(False))
 
     def _wait_if_paused(self) -> bool:
         with self.pause_condition:
@@ -753,8 +855,8 @@ class AutoaApp:
                 # 短暫等待讓 UI 穩定
                 time.sleep(0.3)
 
-                # 檢測是否有 greenchat.png（使用高信心度避免誤判）
-                greenchat_location = self._try_locate(pyautogui, self.greenchat_template, confidence=0.92)
+                # 檢測是否有 greenchat.png（使用極高信心度避免誤判）
+                greenchat_location = self._try_locate(pyautogui, self.greenchat_template, confidence=0.95)
 
                 if greenchat_location:
                     # 保存匹配區域的截圖進行驗證
@@ -792,7 +894,7 @@ class AutoaApp:
                         time.sleep(1.2)  # 增加延遲，等待聊天窗口打開
 
                         # 檢查是否成功（按鈕消失）
-                        check_location = self._try_locate(pyautogui, self.greenchat_template, confidence=0.85)
+                        check_location = self._try_locate(pyautogui, self.greenchat_template, confidence=0.90)
                         if not check_location:
                             clicked_count += 1
                             self.append_log(f"  ✓ 按鈕已消失，點擊成功！（累計 {clicked_count} 次）")
@@ -822,6 +924,148 @@ class AutoaApp:
             self.root.after(0, lambda err=exc: messagebox.showerror('測試失敗', f'執行失敗：{err}'))
         finally:
             self.friend_cycle_thread = None
+
+    def _calibrate_arrows_for_friend_only(self, pyautogui_module: Any) -> bool:
+        """執行箭頭校正：收藏/社群/群組 HIDE，好友 SHOW"""
+        try:
+            screen_width, screen_height = pyautogui_module.size()
+        except Exception:
+            screen_width = screen_height = None
+
+        # 定義要處理的項目：收藏、社群、群組要 hide，好友要 show
+        sections = [
+            ("收藏", self.arrow_section_templates[0][1], "hide"),
+            ("社群", self.arrow_section_templates[1][1], "hide"),
+            ("群組", self.arrow_section_templates[2][1], "hide"),
+            ("好友", self.arrow_section_templates[3][1], "show"),
+        ]
+
+        for name, template, expectation in sections:
+            self.append_log(f"  處理 {name} 區塊（目標：{'展開' if expectation == 'show' else '收起'}）")
+
+            result = self._calibrate_section_once(
+                pyautogui_module,
+                name=name,
+                template=template,
+                expectation=expectation,
+                screen_size=(screen_width, screen_height),
+            )
+
+            if "成功" not in result and "跳過" not in result:
+                self.append_log(f"  ⚠ {name} 處理異常：{result}")
+                return False
+
+            time.sleep(0.3)  # 每個區塊之間稍微延遲
+
+        self.append_log("  ✓ 箭頭校正完成")
+        return True
+
+    def _send_message_to_current_chat(
+        self,
+        pyautogui_module: Any,
+        message: str,
+        image_path: str | None,
+        dry_run: bool,
+    ) -> bool:
+        """發送訊息到當前打開的聊天窗口"""
+        try:
+            # 1. 找到訊息輸入框（使用 message_cube.png 模板）
+            message_cube_location = self._try_locate(pyautogui_module, self.message_cube_template, confidence=0.85)
+
+            if not message_cube_location:
+                self.append_log("  ⚠ 未找到訊息輸入框")
+                return False
+
+            cube_coords = self._box_to_tuple(message_cube_location)
+            if not cube_coords:
+                return False
+
+            # 計算輸入框的點擊位置（在 message_cube 右側）
+            input_x = cube_coords[0] + cube_coords[2] + 50
+            input_y = cube_coords[1] + cube_coords[3] // 2
+
+            # 2. 點擊輸入框獲得焦點
+            pyautogui_module.click(input_x, input_y)
+            time.sleep(0.2)
+
+            # 3. 貼上訊息文字（使用剪貼簿）
+            if message:
+                try:
+                    import pyperclip
+                    pyperclip.copy(message)
+                    pyautogui_module.hotkey('ctrl', 'v')
+                    time.sleep(0.3)
+                except ImportError:
+                    self.append_log("  ⚠ pyperclip 未安裝，無法貼上訊息")
+                    return False
+
+            # 4. 如果有圖片，附加圖片
+            if image_path and Path(image_path).exists():
+                self.append_log(f"  → 附加圖片：{image_path}")
+
+                # 將圖片路徑轉換為絕對路徑
+                abs_image_path = str(Path(image_path).absolute())
+
+                try:
+                    import pyperclip
+
+                    # 保存當前剪貼簿內容（訊息文字）
+                    saved_clipboard = None
+                    try:
+                        saved_clipboard = pyperclip.paste()
+                    except:
+                        pass
+
+                    # 使用 Ctrl+O 快捷鍵打開文件選擇器
+                    pyautogui_module.hotkey('ctrl', 'o')
+                    time.sleep(1.0)  # 等待文件選擇對話框出現
+
+                    # 使用剪貼簿來處理路徑（支持中文和特殊字符）
+                    pyperclip.copy(abs_image_path)
+                    time.sleep(0.1)
+
+                    # 在文件名輸入框中貼上路徑（Ctrl+V）
+                    pyautogui_module.hotkey('ctrl', 'v')
+                    time.sleep(0.5)
+
+                    # 按 Enter 確認選擇
+                    pyautogui_module.press('enter')
+                    time.sleep(1.2)  # 等待圖片加載並顯示在輸入框
+
+                    # 恢復剪貼簿內容（訊息文字）
+                    if saved_clipboard:
+                        try:
+                            pyperclip.copy(saved_clipboard)
+                        except:
+                            pass
+
+                    self.append_log(f"  ✓ 圖片已附加")
+
+                except Exception as e:
+                    self.append_log(f"  ✗ 圖片附加失敗：{e}")
+                    # 如果附加失敗，按 ESC 關閉可能開啟的對話框
+                    try:
+                        pyautogui_module.press('escape')
+                        time.sleep(0.3)
+                    except:
+                        pass
+                    # 即使附加失敗，仍然繼續發送文字訊息
+
+            # 5. 發送訊息
+            if dry_run:
+                self.append_log("  → 乾跑模式：不實際發送")
+                # 清除輸入框（ESC 鍵）
+                pyautogui_module.press('escape')
+                return True
+            else:
+                # 按 Enter 發送
+                pyautogui_module.press('enter')
+                time.sleep(0.5)
+                return True
+
+        except Exception as exc:
+            self.append_log(f"  ✗ 發送訊息時發生錯誤：{exc}")
+            return False
 
     def _detect_greenchat(self, pyautogui_module: Any) -> bool:
         """檢測是否存在綠色聊天框"""
