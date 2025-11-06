@@ -884,14 +884,10 @@ class AutoaApp:
                         pyautogui.click(click_x, click_y)
                         opened_count += 1
 
-                        # 等待聊天視窗打開
-                        time.sleep(0.8)
-
-                        # 關閉聊天視窗（按 ESC 返回好友列表）
-                        pyautogui.press('escape')
+                        # 短暫等待聊天視窗打開
                         time.sleep(0.5)
 
-                        self.append_log(f"已關閉聊天視窗，當前已開啟 {opened_count}/{friend_count}")
+                        self.append_log(f"已開啟聊天視窗，當前進度 {opened_count}/{friend_count}")
 
                         # 檢查是否已達目標數量
                         if opened_count >= friend_count:
