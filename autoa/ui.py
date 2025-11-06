@@ -859,7 +859,7 @@ class AutoaApp:
 
             self.append_log(f"準備點擊第一個好友位置：({first_friend_x}, {first_friend_y})")
 
-            # 4. 點擊第一個好友
+            # 4. 點擊第一個好友選中它（不會打開聊天窗）
             pyautogui.click(first_friend_x, first_friend_y)
             time.sleep(0.5)
 
@@ -868,35 +868,42 @@ class AutoaApp:
 
             # 5. 開始循環檢測和導航
             for attempt in range(max_attempts):
+                self.append_log(f"檢測第 {attempt + 1} 位好友...")
+
                 # 檢測是否有 greenchat.png
-                has_greenchat = self._detect_greenchat(pyautogui)
+                greenchat_location = self._try_locate(pyautogui, self.greenchat_template, confidence=0.85)
 
-                if has_greenchat:
-                    # 有綠色聊天框，點擊開啟
-                    self.append_log(f"第 {opened_count + 1} 位好友：檢測到綠色聊天框，點擊開啟")
-                    opened_count += 1
+                if greenchat_location:
+                    # 有綠色聊天框，點擊 greenchat.png 按鈕
+                    greenchat_coords = self._box_to_tuple(greenchat_location)
+                    if greenchat_coords:
+                        click_x = greenchat_coords[0] + greenchat_coords[2] // 2
+                        click_y = greenchat_coords[1] + greenchat_coords[3] // 2
 
-                    # 點擊 greenchat
-                    greenchat_location = self._try_locate(pyautogui, self.greenchat_template, confidence=0.85)
-                    if greenchat_location:
-                        greenchat_coords = self._box_to_tuple(greenchat_location)
-                        if greenchat_coords:
-                            click_x = greenchat_coords[0] + greenchat_coords[2] // 2
-                            click_y = greenchat_coords[1] + greenchat_coords[3] // 2
-                            pyautogui.click(click_x, click_y)
-                            time.sleep(0.3)
+                        self.append_log(f"第 {opened_count + 1} 位好友：檢測到綠色聊天框於 ({click_x}, {click_y})，點擊開啟")
+                        pyautogui.click(click_x, click_y)
+                        opened_count += 1
 
-                    # 檢查是否已達目標數量
-                    if opened_count >= friend_count:
-                        self.append_log(f"已成功開啟 {opened_count} 位好友的聊天窗")
-                        break
+                        # 等待聊天視窗打開
+                        time.sleep(0.8)
+
+                        # 關閉聊天視窗（按 ESC 返回好友列表）
+                        pyautogui.press('escape')
+                        time.sleep(0.5)
+
+                        self.append_log(f"已關閉聊天視窗，當前已開啟 {opened_count}/{friend_count}")
+
+                        # 檢查是否已達目標數量
+                        if opened_count >= friend_count:
+                            self.append_log(f"已成功開啟 {opened_count} 位好友的聊天窗")
+                            break
                 else:
-                    # 沒有綠色聊天框，記錄並跳過
+                    # 沒有綠色聊天框，跳過
                     self.append_log(f"當前好友無綠色聊天框，跳過")
 
                 # 使用方向鍵下移到下一個好友
                 pyautogui.press('down')
-                time.sleep(0.3)
+                time.sleep(0.4)
 
             # 6. 完成報告
             if opened_count >= friend_count:
