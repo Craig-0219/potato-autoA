@@ -192,6 +192,13 @@ class AutoaApp:
         ttk.Entry(frame, textvariable=self.delay_var, width=10).grid(row=1, column=1, sticky="w", pady=(8, 0))
         ttk.Label(frame, text="秒（每個好友之間的延遲）").grid(row=1, column=2, sticky="w", pady=(8, 0), padx=(8, 0))
 
+        # 執行模式設置
+        ttk.Label(frame, text="執行模式：").grid(row=2, column=0, sticky="w", pady=(8, 0))
+        mode_frame = ttk.Frame(frame)
+        mode_frame.grid(row=2, column=1, columnspan=2, sticky="w", pady=(8, 0))
+        ttk.Radiobutton(mode_frame, text="乾跑（不實際發送）", value="dryrun", variable=self.mode_var).pack(side="left", padx=(0, 16))
+        ttk.Radiobutton(mode_frame, text="正式（實際發送）", value="live", variable=self.mode_var).pack(side="left")
+
     def _build_message_section(self, parent: ttk.Frame) -> None:
         frame = ttk.LabelFrame(parent, text="訊息內容", padding=10)
         frame.grid(row=1, column=0, sticky="ew", pady=(8, 0))
