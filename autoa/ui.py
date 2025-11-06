@@ -16,12 +16,7 @@ from typing import Any, Iterable
 
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
-from tkinter.scrolledtext import ScrolledText
 
-from autoa.flow import FlowExecutor
-from autoa.guards import GuardRail
-from autoa.rpa import RPAController
-from autoa.vision import TemplateMatcher
 from autoa.line_automation import CycleResult, LineAutomationError, cycle_friend_chats
 
 
@@ -37,13 +32,6 @@ LINE_REFRESH_MS = 5000
 TEMPLATE_CONFIDENCE = 0.88
 MAX_CHAT_TEST_RECIPIENTS = 8
 
-def build_executor() -> FlowExecutor:
-    """Create a FlowExecutor with default dependencies."""
-    rpa = RPAController()
-    matcher = TemplateMatcher()
-    guards = GuardRail()
-    return FlowExecutor(rpa=rpa, matcher=matcher, guards=guards)
-
 
 class AutoaApp:
     """Main Tkinter UI."""
@@ -52,11 +40,9 @@ class AutoaApp:
         self.root = root
         self.root.title("AUTOA RPA Control Panel")
 
-        self.executor = build_executor()
-
         self.friend_count_var = tk.StringVar(value="10")  # 發送好友數量
         self.delay_var = tk.StringVar(value="2")  # 每個好友延遲秒數
-        self.message_text: ScrolledText | None = None
+        self.message_text: tk.Text | None = None
         self.image_var = tk.StringVar()
         self.mode_var = tk.StringVar(value="dryrun")
         self.exec_count_var = tk.StringVar(value="1")
@@ -71,7 +57,7 @@ class AutoaApp:
         self.pause_condition = threading.Condition()
         self.worker_thread: threading.Thread | None = None
 
-        self.log_text: ScrolledText | None = None
+        self.log_text: tk.Text | None = None
         self.progress_bar: ttk.Progressbar | None = None
         self.log_lines: deque[str] = deque(maxlen=LOG_CAPACITY)
 
@@ -204,7 +190,7 @@ class AutoaApp:
         frame.grid(row=1, column=0, sticky="ew", pady=(8, 0))
         frame.columnconfigure(0, weight=1)
 
-        self.message_text = ScrolledText(frame, wrap="word", height=6)
+        self.message_text = tk.Text(frame, wrap="word", height=6)
         self.message_text.grid(row=0, column=0, columnspan=3, sticky="nsew")
         frame.rowconfigure(0, weight=1)
 
@@ -254,7 +240,7 @@ class AutoaApp:
 
         ttk.Label(frame, textvariable=self.current_step_var).grid(row=1, column=0, sticky="w", pady=(6, 0))
 
-        self.log_text = ScrolledText(frame, height=10, wrap="word", state="disabled")
+        self.log_text = tk.Text(frame, height=10, wrap="word", state="disabled")
         self.log_text.grid(row=3, column=0, sticky="nsew", pady=(8, 0))
 
         button_frame = ttk.Frame(frame)
