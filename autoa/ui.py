@@ -949,11 +949,10 @@ class AutoaApp:
                         if click_success:
                             clicked_count += 1
                             self.append_log(f"✓ 成功點擊綠色按鈕（累計 {clicked_count} 次）")
+                            # 等待聊天視窗打開
+                            time.sleep(0.5)
                         else:
                             self.append_log(f"✗ 點擊失敗，按鈕未消失（請檢查 {matched_path}）")
-
-                        # 等待聊天視窗打開
-                        time.sleep(0.5)
                 else:
                     # 沒有綠色聊天框（可能已經開啟過）
                     self.append_log(f"第 {opened_count} 位好友：無綠色聊天框（已嘗試信心度 0.90/0.85/0.80）")
