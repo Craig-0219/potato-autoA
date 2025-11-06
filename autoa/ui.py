@@ -933,6 +933,19 @@ class AutoaApp:
 
             self.append_log(f"  偵測到：{show_count} 個展開箭頭、{hide_count} 個收合箭頭")
 
+            # 顯示箭頭位置（用於診斷）
+            if show_count > 0:
+                for i, loc in enumerate(show_locations, 1):
+                    coords = self._box_to_tuple(loc)
+                    if coords:
+                        self.append_log(f"    展開箭頭 {i} 位於 Y={int(coords[1])}")
+
+            if hide_count > 0:
+                for i, loc in enumerate(hide_locations, 1):
+                    coords = self._box_to_tuple(loc)
+                    if coords:
+                        self.append_log(f"    收合箭頭 {i} 位於 Y={int(coords[1])}")
+
             # 3. 檢查是否達到目標狀態（1 個 show + 3 個 hide）
             if show_count == 1 and hide_count == 3:
                 self.append_log("  ✓ 箭頭狀態符合目標：1 個展開 + 3 個收合")
@@ -981,18 +994,45 @@ class AutoaApp:
                         time.sleep(1.0)  # 等待動畫完成
                         continue
 
-            # 6. 其他情況：嘗試智能調整
-            self.append_log(f"  ⚠ 當前狀態不符合目標，繼續調整...")
+            # 6. 如果是 1 個展開 + 4 個收合（可能有誤判或額外箭頭）
+            if show_count == 1 and hide_count == 4:
+                self.append_log(f"  ⚠ 偵測到 4 個收合箭頭，可能有誤判")
+                self.append_log(f"  → 嘗試展開最上面的收合箭頭")
 
-            # 如果 show 太多，收合多餘的
-            if show_count > 1:
-                continue  # 已經在上面處理過了
+                # 按 Y 座標排序，從上到下
+                hide_locations_sorted = sorted(
+                    hide_locations,
+                    key=lambda loc: self._box_to_tuple(loc)[1] if self._box_to_tuple(loc) else float('inf')
+                )
+
+                # 展開第一個（最上面的）收合箭頭
+                if hide_locations_sorted:
+                    first_hide = hide_locations_sorted[0]  # 最上面的
+                    location_tuple = self._box_to_tuple(first_hide)
+
+                    if location_tuple:
+                        click_x = location_tuple[0] + location_tuple[2] / 2
+                        click_y = location_tuple[1] + location_tuple[3] / 2
+
+                        self.append_log(f"  → 點擊展開收合箭頭於 ({int(click_x)}, {int(click_y)})")
+                        pyautogui_module.click(click_x, click_y)
+                        time.sleep(1.0)  # 等待動畫完成
+                        continue
+
+            # 7. 其他情況：報告狀態
+            self.append_log(f"  ⚠ 當前狀態不符合目標，繼續調整...")
 
             # 如果找不到足夠的箭頭
             if show_count + hide_count < 4:
                 self.append_log(f"  ⚠ 偵測到的箭頭總數不足 4 個（共 {show_count + hide_count} 個）")
                 self.append_log(f"  → 可能是模板問題或介面未完全顯示")
                 return False
+
+            # 如果箭頭總數超過 4 個，可能有誤判
+            if show_count + hide_count > 4:
+                self.append_log(f"  ⚠ 偵測到的箭頭總數超過 4 個（共 {show_count + hide_count} 個）")
+                self.append_log(f"  → 可能模板匹配到了其他介面元素")
+                self.append_log(f"  → 建議：檢查 hide.png 和 show.png 模板是否準確")
 
         # 超過最大嘗試次數
         self.append_log(f"  ✗ 已嘗試 {max_attempts} 次，仍無法達到目標狀態")
