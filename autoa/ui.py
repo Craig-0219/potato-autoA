@@ -951,10 +951,12 @@ class AutoaApp:
                 screen_size=(screen_width, screen_height),
             )
 
-            if "成功" not in result and "跳過" not in result:
+            # 檢查是否是錯誤情況
+            if "未命中模板" in result or "未找到可處理的項目" in result:
                 self.append_log(f"  ⚠ {name} 處理異常：{result}")
                 return False
 
+            self.append_log(f"  ✓ {name} 處理完成")
             time.sleep(0.3)  # 每個區塊之間稍微延遲
 
         self.append_log("  ✓ 箭頭校正完成")
