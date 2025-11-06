@@ -1757,12 +1757,36 @@ class AutoaApp:
 
         window = windows[0]
         try:
+            # 如果視窗最小化，先還原
             if getattr(window, "isMinimized", False):
                 window.restore()
+                time.sleep(0.3)
+
+            # 使用 activate() 將視窗置頂
             window.activate()
-            time.sleep(0.3)
+            time.sleep(0.5)
+
+            # 額外點擊視窗中心確保獲得焦點
+            try:
+                # 獲取視窗位置和大小
+                left = getattr(window, "left", 0)
+                top = getattr(window, "top", 0)
+                width = getattr(window, "width", 800)
+                height = getattr(window, "height", 600)
+
+                # 點擊視窗中心
+                center_x = left + width // 2
+                center_y = top + height // 2
+                pyautogui_module.click(center_x, center_y)
+                time.sleep(0.3)
+                self.append_log("已將 LINE 視窗置頂並獲得焦點。")
+            except Exception as click_exc:
+                self.append_log(f"點擊視窗中心失敗：{click_exc}")
+
         except Exception as exc:
             self.append_log(f"聚焦 LINE 失敗：{exc}")
+            return False
+
         return True
 
     def _on_close(self) -> None:
