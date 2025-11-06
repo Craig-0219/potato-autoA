@@ -876,45 +876,57 @@ class AutoaApp:
                 # 短暫等待讓 UI 穩定
                 time.sleep(0.3)
 
-                # 檢測是否有 greenchat.png（使用多個信心度嘗試）
+                # 檢測是否有 greenchat.png（使用較高信心度避免誤判）
                 greenchat_location = None
-                for conf in [0.80, 0.75, 0.70]:
+                matched_confidence = None
+                for conf in [0.90, 0.85, 0.80]:
                     greenchat_location = self._try_locate(pyautogui, self.greenchat_template, confidence=conf)
                     if greenchat_location:
-                        self.append_log(f"  → greenchat.png 匹配成功（信心度 {conf}）")
+                        matched_confidence = conf
                         break
 
-                if not greenchat_location:
-                    self.append_log(f"  → greenchat.png 未匹配到（已嘗試信心度 0.80/0.75/0.70）")
-
                 if greenchat_location:
-                    # 有綠色聊天框，點擊 greenchat.png 按鈕本身
+                    # 保存匹配區域的截圖進行驗證
                     greenchat_coords = self._box_to_tuple(greenchat_location)
                     if greenchat_coords:
                         # 計算 greenchat.png 按鈕的中心點
                         click_x = greenchat_coords[0] + greenchat_coords[2] // 2
                         click_y = greenchat_coords[1] + greenchat_coords[3] // 2
 
-                        self.append_log(
-                            f"第 {opened_count} 位好友：檢測到綠色聊天框 "
-                            f"位置=({greenchat_coords[0]}, {greenchat_coords[1]}), "
-                            f"大小=({greenchat_coords[2]}x{greenchat_coords[3]}), "
-                            f"點擊中心=({click_x}, {click_y})"
-                        )
-
-                        # 保存調試截圖，確認匹配位置
                         try:
+                            # 保存完整螢幕截圖
                             screenshot = pyautogui.screenshot()
-                            debug_path = Path('debug_greenchat_click.png')
-                            screenshot.save(str(debug_path))
-                            self.append_log(f"  → 已保存調試截圖: {debug_path}")
+                            full_debug_path = Path(f'debug_greenchat_full_{opened_count}.png')
+                            screenshot.save(str(full_debug_path))
+
+                            # 截取並保存匹配區域
+                            matched_region = screenshot.crop((
+                                greenchat_coords[0],
+                                greenchat_coords[1],
+                                greenchat_coords[0] + greenchat_coords[2],
+                                greenchat_coords[1] + greenchat_coords[3]
+                            ))
+                            matched_path = Path(f'debug_matched_region_{opened_count}.png')
+                            matched_region.save(str(matched_path))
+
+                            self.append_log(
+                                f"第 {opened_count} 位好友：檢測到 greenchat.png "
+                                f"位置=({greenchat_coords[0]}, {greenchat_coords[1]}), "
+                                f"大小=({greenchat_coords[2]}x{greenchat_coords[3]}), "
+                                f"信心度={matched_confidence}"
+                            )
+                            self.append_log(f"  → 完整截圖: {full_debug_path}")
+                            self.append_log(f"  → 匹配區域: {matched_path}")
+                            self.append_log(f"  → 點擊中心: ({click_x}, {click_y})")
+
                         except Exception as e:
                             self.append_log(f"  → 保存調試截圖失敗: {e}")
 
-                        # 確保視窗在前景，先點擊一下當前好友位置確保焦點
+                        # 確保視窗在前景
                         time.sleep(0.2)
 
                         # 多次嘗試點擊，確保成功
+                        click_success = False
                         for click_attempt in range(3):
                             # 移動鼠標到目標位置
                             pyautogui.moveTo(click_x, click_y, duration=0.3)
@@ -923,25 +935,28 @@ class AutoaApp:
                             # 點擊 greenchat.png 按鈕
                             pyautogui.click(click_x, click_y)
                             self.append_log(f"  → 點擊嘗試 {click_attempt + 1}/3 於 ({click_x}, {click_y})")
-                            time.sleep(0.3)
+                            time.sleep(0.4)
 
                             # 檢查是否成功（按鈕消失）
-                            check_location = self._try_locate(pyautogui, self.greenchat_template, confidence=0.75)
+                            check_location = self._try_locate(pyautogui, self.greenchat_template, confidence=0.80)
                             if not check_location:
                                 self.append_log(f"  ✓ 按鈕已消失，點擊成功！")
+                                click_success = True
                                 break
                             else:
-                                self.append_log(f"  ⚠ 按鈕仍在，繼續嘗試...")
+                                self.append_log(f"  ⚠ 按鈕仍在位置 {self._box_to_tuple(check_location)}，繼續嘗試...")
 
-                        clicked_count += 1
+                        if click_success:
+                            clicked_count += 1
+                            self.append_log(f"✓ 成功點擊綠色按鈕（累計 {clicked_count} 次）")
+                        else:
+                            self.append_log(f"✗ 點擊失敗，按鈕未消失（請檢查 {matched_path}）")
 
                         # 等待聊天視窗打開
                         time.sleep(0.5)
-
-                        self.append_log(f"✓ 完成綠色按鈕點擊（已點擊 {clicked_count} 次）")
                 else:
                     # 沒有綠色聊天框（可能已經開啟過）
-                    self.append_log(f"第 {opened_count} 位好友：無綠色聊天框（可能已開啟過）")
+                    self.append_log(f"第 {opened_count} 位好友：無綠色聊天框（已嘗試信心度 0.90/0.85/0.80）")
 
                 # 檢查是否已達目標數量
                 if opened_count >= friend_count:
