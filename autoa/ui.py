@@ -387,6 +387,17 @@ class AutoaApp:
         image_path = self.image_var.get().strip() or None
         dry_run = self.mode_var.get() != "live"
 
+        # 呼叫 LINE 視窗到最上層
+        try:
+            import pyautogui
+        except ImportError as exc:
+            messagebox.showerror("測試失敗", f"無法載入 pyautogui：{exc}")
+            return
+
+        if not self._focus_line_window(pyautogui):
+            messagebox.showwarning("執行失敗", "未偵測到 LINE 視窗，請確認 LINE 已開啟。")
+            return
+
         self.stop_event = threading.Event()
         self.running = True
         self.paused = False
