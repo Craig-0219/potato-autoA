@@ -753,8 +753,8 @@ class AutoaApp:
                 # 短暫等待讓 UI 穩定
                 time.sleep(0.3)
 
-                # 檢測是否有 greenchat.png（使用高信心度避免誤判）
-                greenchat_location = self._try_locate(pyautogui, self.greenchat_template, confidence=0.92)
+                # 檢測是否有 greenchat.png（使用極高信心度避免誤判）
+                greenchat_location = self._try_locate(pyautogui, self.greenchat_template, confidence=0.95)
 
                 if greenchat_location:
                     # 保存匹配區域的截圖進行驗證
@@ -792,7 +792,7 @@ class AutoaApp:
                         time.sleep(1.2)  # 增加延遲，等待聊天窗口打開
 
                         # 檢查是否成功（按鈕消失）
-                        check_location = self._try_locate(pyautogui, self.greenchat_template, confidence=0.85)
+                        check_location = self._try_locate(pyautogui, self.greenchat_template, confidence=0.90)
                         if not check_location:
                             clicked_count += 1
                             self.append_log(f"  ✓ 按鈕已消失，點擊成功！（累計 {clicked_count} 次）")
