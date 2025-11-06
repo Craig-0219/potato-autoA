@@ -617,6 +617,16 @@ class AutoaApp:
                 if current_num < friend_count:
                     self.append_log(f"  → 延遲 {delay} 秒後切換到下一位好友")
                     time.sleep(delay)
+
+                    # 重要：點擊好友列表區域以恢復焦點
+                    # 使用第一個好友的位置作為參考點
+                    focus_x = first_friend_x
+                    focus_y = first_friend_y + (current_num - 1) * 50  # 估算當前好友的Y位置
+                    pyautogui.click(focus_x, focus_y)
+                    self.append_log(f"  → 重新聚焦到好友列表")
+                    time.sleep(0.3)
+
+                    # 按 DOWN 鍵切換到下一個好友
                     pyautogui.press('down')
                     time.sleep(0.3)
 
