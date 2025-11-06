@@ -873,24 +873,39 @@ class AutoaApp:
                 opened_count += 1
                 self.append_log(f"檢測第 {opened_count} 位好友（共 {friend_count} 位）...")
 
-                # 檢測是否有 greenchat.png
-                greenchat_location = self._try_locate(pyautogui, self.greenchat_template, confidence=0.85)
+                # 短暫等待讓 UI 穩定
+                time.sleep(0.3)
+
+                # 檢測是否有 greenchat.png（降低信心度以提高檢測準確性）
+                greenchat_location = self._try_locate(pyautogui, self.greenchat_template, confidence=0.80)
 
                 if greenchat_location:
-                    # 有綠色聊天框，點擊 greenchat.png 按鈕
+                    # 有綠色聊天框，點擊 greenchat.png 按鈕本身
                     greenchat_coords = self._box_to_tuple(greenchat_location)
                     if greenchat_coords:
+                        # 計算 greenchat.png 按鈕的中心點
                         click_x = greenchat_coords[0] + greenchat_coords[2] // 2
                         click_y = greenchat_coords[1] + greenchat_coords[3] // 2
 
-                        self.append_log(f"第 {opened_count} 位好友：檢測到綠色聊天框於 ({click_x}, {click_y})，點擊開啟")
+                        self.append_log(
+                            f"第 {opened_count} 位好友：檢測到綠色聊天框 "
+                            f"位置=({greenchat_coords[0]}, {greenchat_coords[1]}), "
+                            f"大小=({greenchat_coords[2]}x{greenchat_coords[3]}), "
+                            f"點擊中心=({click_x}, {click_y})"
+                        )
+
+                        # 先移動鼠標到目標位置
+                        pyautogui.moveTo(click_x, click_y, duration=0.2)
+                        time.sleep(0.1)
+
+                        # 點擊 greenchat.png 按鈕
                         pyautogui.click(click_x, click_y)
                         clicked_count += 1
 
-                        # 短暫等待聊天視窗打開
-                        time.sleep(0.5)
+                        # 等待聊天視窗打開
+                        time.sleep(0.6)
 
-                        self.append_log(f"已點擊開啟聊天視窗（已點擊 {clicked_count} 次）")
+                        self.append_log(f"✓ 已點擊綠色按鈕（已點擊 {clicked_count} 次）")
                 else:
                     # 沒有綠色聊天框（可能已經開啟過）
                     self.append_log(f"第 {opened_count} 位好友：無綠色聊天框（可能已開啟過）")
