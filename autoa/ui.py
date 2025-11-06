@@ -190,7 +190,7 @@ class AutoaApp:
         frame.grid(row=1, column=0, sticky="ew", pady=(8, 0))
         frame.columnconfigure(0, weight=1)
 
-        self.message_text = ScrolledText(frame, wrap="word", height=6)
+        self.message_text = tk.Text(frame, wrap="word", height=6)
         self.message_text.grid(row=0, column=0, columnspan=3, sticky="nsew")
         frame.rowconfigure(0, weight=1)
 
