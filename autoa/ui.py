@@ -907,6 +907,11 @@ class AutoaApp:
 
         self.append_log("開始箭頭校正：目標 3 個收合 + 1 個展開")
 
+        # 先滾動到最上方，確保所有箭頭都在可見範圍內
+        self.append_log("  → 滾動左側面板到頂部")
+        self._scroll_left_panel_to_top(pyautogui_module)
+        time.sleep(0.5)  # 等待滾動完成
+
         # 最多嘗試 10 次，每次收合一個展開的箭頭
         max_attempts = 10
         for attempt in range(1, max_attempts + 1):
