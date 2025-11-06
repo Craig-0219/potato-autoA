@@ -1264,17 +1264,36 @@ class AutoaApp:
                 return None
             return (x, y, w, h)
 
+        def is_valid_arrow_position(arrow_loc: Any, anchor: tuple[int, int, int, int]) -> bool:
+            """驗證箭頭位置是否在錨點附近（合理範圍內）"""
+            arrow_coords = self._box_to_tuple(arrow_loc)
+            if arrow_coords is None:
+                return False
+
+            arrow_x, arrow_y, arrow_w, arrow_h = arrow_coords
+            anchor_x, anchor_y, anchor_w, anchor_h = anchor
+
+            # 箭頭應該在錨點的水平方向附近（±200px）和垂直方向附近（±100px）
+            horizontal_distance = abs(arrow_x - anchor_x)
+            vertical_distance = abs(arrow_y - anchor_y)
+
+            # 允許的最大距離
+            max_horizontal = 350  # 箭頭可能在標題右側
+            max_vertical = 80     # 箭頭應該與標題在同一高度
+
+            is_valid = horizontal_distance <= max_horizontal and vertical_distance <= max_vertical
+
+            if not is_valid:
+                self.append_log(
+                    f"✗ 箭頭位置驗證失敗: 箭頭({arrow_x}, {arrow_y}) 距離錨點({anchor_x}, {anchor_y}) "
+                    f"水平 {horizontal_distance}px (限制 {max_horizontal}px), "
+                    f"垂直 {vertical_distance}px (限制 {max_vertical}px)"
+                )
+
+            return is_valid
+
+        # 只使用原始搜索區域，不進行過度擴張或全螢幕搜索
         regions: list[tuple[int, int, int, int] | None] = [clip(region)]
-        if anchor_tuple is not None:
-            ax, ay, aw, ah = anchor_tuple
-            expanded = (
-                max(int(ax) - 160, 0),
-                max(int(ay) - 140, 0),
-                int(aw) + 340,
-                int(ah) + 260,
-            )
-            regions.append(clip(expanded))
-        regions.append((0, 0, screen_width, screen_height))
 
         # 降低信心度閾值，提高檢測成功率
         confidence_levels = [0.85, 0.80, 0.75, 0.70, 0.65, 0.60]
@@ -1292,10 +1311,12 @@ class AutoaApp:
                     confidence=conf,
                 )
                 if loc is not None:
+                    # 驗證箭頭位置是否在錨點附近
+                    if anchor_tuple is not None and not is_valid_arrow_position(loc, anchor_tuple):
+                        continue  # 位置不合理，繼續搜索
+
                     if conf < 0.85:
                         self.append_log(f"模板 {template_path.name} 使用降級信心 {conf:.2f} 命中。")
-                    if region is not None and search_region != region:
-                        self.append_log(f"模板 {template_path.name} 擴張區域命中。")
                     return loc
 
         # OpenCV 備用方案，進一步降低閾值
@@ -1304,11 +1325,31 @@ class AutoaApp:
                 continue
             loc = self._match_template_cv(pyautogui_module, template_path, search_region, threshold=0.55)
             if loc is not None:
+                # 驗證箭頭位置是否在錨點附近
+                if anchor_tuple is not None and not is_valid_arrow_position(loc, anchor_tuple):
+                    continue  # 位置不合理，繼續搜索
+
                 self.append_log(f"模板 {template_path.name} 以 OpenCV 灰階比對命中（閾值 0.55）。")
                 return loc
 
-        # 如果仍然失敗，輸出調試信息
-        self.append_log(f"✗ 模板 {template_path.name} 在所有信心度級別和區域均未命中")
+        # 如果仍然失敗，輸出調試信息並保存截圖供調試
+        self.append_log(f"✗ 模板 {template_path.name} 在搜索區域內未找到合理位置的匹配")
+
+        # 保存搜索區域截圖供調試
+        if region is not None:
+            try:
+                import time
+                from pathlib import Path as PathLib
+                screenshot = pyautogui_module.screenshot(region=region)
+                debug_dir = PathLib("reports/arrow_debug")
+                debug_dir.mkdir(parents=True, exist_ok=True)
+                timestamp = time.strftime("%Y%m%d-%H%M%S")
+                debug_path = debug_dir / f"arrow_search_{template_path.stem}_{timestamp}.png"
+                screenshot.save(debug_path)
+                self.append_log(f"已保存搜索區域截圖至 {debug_path} 供調試")
+            except Exception as e:
+                self.append_log(f"保存調試截圖失敗: {e}")
+
         return None
 
     def _match_template_cv(
