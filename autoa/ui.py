@@ -974,6 +974,12 @@ class AutoaApp:
         # === 第二階段：確認有足夠的收合箭頭 ===
         self.append_log("  階段 2：確認收合箭頭數量")
 
+        # 檢查模板檔案是否存在
+        if not self.hide_arrow_template.exists():
+            self.append_log(f"  ✗ hide.png 模板檔案不存在：{self.hide_arrow_template}")
+            return False
+
+        # 先嘗試標準信心值 0.85
         hide_locations = self._try_locate_all(
             pyautogui_module,
             self.hide_arrow_template,
@@ -982,7 +988,31 @@ class AutoaApp:
         )
 
         hide_count = len(hide_locations) if hide_locations else 0
-        self.append_log(f"    偵測到 {hide_count} 個收合箭頭")
+        self.append_log(f"    偵測到 {hide_count} 個收合箭頭（信心值 0.85）")
+
+        # 如果找不到，嘗試降低信心值
+        if hide_count == 0:
+            self.append_log(f"    → 嘗試降低信心值到 0.7 重新搜尋")
+            hide_locations = self._try_locate_all(
+                pyautogui_module,
+                self.hide_arrow_template,
+                region=target_region,
+                confidence=0.7
+            )
+            hide_count = len(hide_locations) if hide_locations else 0
+            self.append_log(f"    偵測到 {hide_count} 個收合箭頭（信心值 0.7）")
+
+        # 如果還是找不到，再嘗試更低的信心值
+        if hide_count == 0:
+            self.append_log(f"    → 嘗試降低信心值到 0.6 重新搜尋")
+            hide_locations = self._try_locate_all(
+                pyautogui_module,
+                self.hide_arrow_template,
+                region=target_region,
+                confidence=0.6
+            )
+            hide_count = len(hide_locations) if hide_locations else 0
+            self.append_log(f"    偵測到 {hide_count} 個收合箭頭（信心值 0.6）")
 
         # 顯示位置
         if hide_locations:
@@ -993,7 +1023,8 @@ class AutoaApp:
 
         if hide_count < 3:
             self.append_log(f"  ✗ 收合箭頭數量不足（需要至少 3 個，實際 {hide_count} 個）")
-            self.append_log(f"  → 可能是模板問題或部分箭頭不在畫面內")
+            self.append_log(f"  → hide.png 模板無法匹配收合箭頭")
+            self.append_log(f"  → 請重新截取 hide.png：只截取收合箭頭（→）本身，約 20x20 像素")
             return False
 
         # === 第三階段：展開最下面的箭頭（好友）===
