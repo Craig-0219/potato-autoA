@@ -37,59 +37,6 @@ LINE_REFRESH_MS = 5000
 TEMPLATE_CONFIDENCE = 0.88
 MAX_CHAT_TEST_RECIPIENTS = 8
 
-TEST_CASES_TEXT = """
-TC-01 環境相關設定
-前置：Windows 10/11；螢幕 1920x1080；DPI = 100%。
-步驟：開啟程式，UI 顯示解析度與 DPI 為綠色「合規」。
-預期：環境檢查通過；若不合規應警示並禁止正式執行。
-
-TC-02 語系選擇
-前置：LINE 桌面版語系為 zh-T（或模板語系）。
-步驟：點「驗證模板」。
-預期：搜尋圖示、附件、送出模板皆通過；語系錯誤時顯示修正建議。
-
-TC-03 執行步驟：乾跑
-前置：收件者「測試」、訊息「Hello」、圖片 test.jpg。
-步驟：模式切到「乾跑」、按「開始」。
-預期：UI 只畫框提示、不實際點擊；日誌顯示每一步命中結果。
-
-TC-04 新增相片（正式送圖）
-前置：TC-03 通過，模式改為「正式」。
-步驟：開始 → 聚焦 LINE → 搜尋 → 輸入訊息 → 附件 → 選檔 → 送出。
-預期：聊天視窗出現圖片與文字各一；日誌記錄路徑與送出成功。
-
-TC-05 訊息僅文字
-前置：圖片欄位留空、訊息「純文字」。
-步驟：正式執行。
-預期：只送出文字；日誌註記「未選擇圖片略過附件步驟」。
-
-TC-06 執行次數
-前置：執行次數固定 1（不可編輯）。
-步驟：正式執行。
-預期：流程僅跑一次；完成後狀態回到「閒置」。
-
-TC-07 節流與延遲
-前置：設定延遲範圍（例如 1-2 秒）。
-步驟：正式執行並觀察停頓。
-預期：步驟間延遲落在範圍內；日誌紀錄每次延遲。
-
-TC-08 模板未命中
-前置：切換 LINE 語系或主題使模板失敗。
-步驟：乾跑驗證。
-預期：UI 顯示紅色狀態與建議，禁止正式執行。
-
-TC-09 受眾錯誤
-前置：輸入不存在的收件者。
-步驟：正式執行。
-預期：搜尋不到對話 → 顯示「未命中收件者」並終止。
-
-TC-10 權限視窗前景
-前置：LINE 被最小化或遮擋。
-步驟：正式執行。
-預期：先嘗試 bring-to-front；若失敗提示「請將 LINE 置於主螢幕」。
-""".strip()
-
-
 def build_executor() -> FlowExecutor:
     """Create a FlowExecutor with default dependencies."""
     rpa = RPAController()
@@ -203,10 +150,8 @@ class AutoaApp:
 
         self._build_recipient_section(container)
         self._build_message_section(container)
-        self._build_execution_options(container)
         self._build_system_section(container)
         self._build_execution_section(container)
-        self._build_testcase_section(container)
 
         test_frame = ttk.Frame(test_tab, padding=12)
         test_frame.grid(row=0, column=0, sticky="nsew")
@@ -260,30 +205,6 @@ class AutoaApp:
         image_entry = ttk.Entry(frame, textvariable=self.image_var)
         image_entry.grid(row=1, column=1, sticky="ew", pady=(8, 0))
         ttk.Button(frame, text="選擇圖片...", command=self.browse_image).grid(row=1, column=2, pady=(8, 0))
-
-    def _build_execution_options(self, parent: ttk.Frame) -> None:
-        frame = ttk.LabelFrame(parent, text="執行設定", padding=10)
-        frame.grid(row=2, column=0, sticky="ew", pady=(8, 0))
-        frame.columnconfigure(1, weight=1)
-
-        ttk.Label(frame, text="模式：").grid(row=0, column=0, sticky="w")
-        ttk.Radiobutton(frame, text="乾跑", value="dryrun", variable=self.mode_var).grid(row=0, column=1, sticky="w")
-        ttk.Radiobutton(frame, text="正式", value="live", variable=self.mode_var).grid(row=0, column=2, sticky="w")
-
-        ttk.Label(frame, text="執行次數：").grid(row=1, column=0, sticky="w", pady=(8, 0))
-        ttk.Entry(frame, textvariable=self.exec_count_var, state="disabled", width=6).grid(
-            row=1,
-            column=1,
-            sticky="w",
-            pady=(8, 0),
-        )
-
-        ttk.Label(frame, text="節流秒數 (min ~ max)：").grid(row=2, column=0, sticky="w", pady=(8, 0))
-        ttk.Entry(frame, textvariable=self.throttle_min_var, width=8).grid(row=2, column=1, sticky="w", pady=(8, 0))
-        ttk.Entry(frame, textvariable=self.throttle_max_var, width=8).grid(row=2, column=2, sticky="w", pady=(8, 0))
-
-        ttk.Button(frame, text="驗證模板", command=self.handle_verify_templates).grid(row=0, column=3, sticky="e")
-        ttk.Button(frame, text="重新檢查環境", command=self.run_system_checks).grid(row=1, column=3, sticky="e", pady=(8, 0))
 
     def _build_system_section(self, parent: ttk.Frame) -> None:
         frame = ttk.LabelFrame(parent, text="系統狀態", padding=10)
@@ -344,17 +265,6 @@ class AutoaApp:
 
         self.screenshot_button = ttk.Button(button_frame, text="截圖", command=self.handle_screenshot)
         self.screenshot_button.grid(row=0, column=3, padx=4)
-
-    def _build_testcase_section(self, parent: ttk.Frame) -> None:
-        frame = ttk.LabelFrame(parent, text="測試項 (Test Cases)", padding=10)
-        frame.grid(row=5, column=0, sticky="nsew", pady=(8, 0))
-        frame.columnconfigure(0, weight=1)
-        frame.rowconfigure(0, weight=1)
-
-        testcase_text = ScrolledText(frame, height=12, wrap="word")
-        testcase_text.grid(row=0, column=0, sticky="nsew")
-        testcase_text.insert("1.0", TEST_CASES_TEXT)
-        testcase_text.configure(state="disabled")
 
     def _build_test_shortcuts_section(self, parent: ttk.Frame) -> None:
         frame = ttk.LabelFrame(parent, text="快捷測試", padding=10)
