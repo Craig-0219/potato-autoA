@@ -872,20 +872,7 @@ class AutoaApp:
             messagebox.showerror("箭頭校正", f"無法載入 pyautogui：{exc}")
             return
 
-        if not self._focus_line_window(pyautogui):
-            messagebox.showwarning("箭頭校正", "未偵測到 LINE 視窗，請確認 LINE 已啟動。")
-            return
-
-        self.append_log("開始箭頭校正（增強模式）")
-        self.append_log("步驟 1/2：捲動側邊欄到頂部")
-
-        try:
-            self._scroll_left_panel_to_top(pyautogui)
-            time.sleep(0.8)
-        except Exception as exc:
-            self.append_log(f"捲動失敗（繼續執行）：{exc}")
-
-        self.append_log("步驟 2/2：開始校正各區塊")
+        self.append_log("開始箭頭校正（線性模式）")
 
         reports: list[str] = []
         try:
@@ -893,7 +880,7 @@ class AutoaApp:
         except Exception:
             screen_width = screen_height = None
 
-        for name, template, expectation in sequence:
+        for idx, (name, template, expectation) in enumerate(sequence):
             result = self._calibrate_section_once(
                 pyautogui,
                 name=name,
@@ -902,11 +889,14 @@ class AutoaApp:
                 screen_size=(screen_width, screen_height),
             )
             reports.append(result)
-            time.sleep(0.5)
 
-        summary = "\n".join(reports)
-        self.append_log(f"箭頭校正完成：\n{summary}")
-        messagebox.showinfo("箭頭校正結果", summary)
+            # Add delay between sections to allow UI to stabilize
+            # Skip delay after the last section
+            if idx < len(sequence) - 1:
+                self.append_log(f"等待 UI 穩定...")
+                time.sleep(0.6)
+
+        messagebox.showinfo("箭頭校正結果", "\n".join(reports))
 
     def _scroll_left_panel_to_top(
         self,
@@ -973,8 +963,21 @@ class AutoaApp:
                 pyautogui_module.moveTo(x, y, duration=0.15)
                 pyautogui_module.click(x, y)
                 toggled = True
-                time.sleep(0.4)
+
+                # Wait longer for UI animation to complete
+                time.sleep(0.8)
+
+                # Re-detect state after clicking
                 current_state = self.detect_arrow_state(pyautogui_module, location)
+                self.append_log(f"{name} 點擊後狀態：{current_state}")
+
+                # Retry detection if state is still not as expected
+                if current_state != expectation and current_state is not None:
+                    self.append_log(f"{name} 狀態未符合預期，等待後重試檢測...")
+                    time.sleep(0.5)
+                    current_state = self.detect_arrow_state(pyautogui_module, location)
+                    self.append_log(f"{name} 重試後狀態：{current_state}")
+
             except Exception as exc:
                 self.append_log(f"{name} 切換失敗：{exc}")
 
@@ -1142,16 +1145,22 @@ class AutoaApp:
     ) -> str | None:
         region = self._arrow_region(anchor_box)
         if region is None:
+            self.append_log("無法計算箭頭搜索區域")
             return None
 
+        # Try to detect hide arrow (收合) first
         hide_box = self._locate_arrow(pyautogui_module, self.hide_arrow_template, region, anchor_box)
         if hide_box is not None:
-            return '收合'
+            self.append_log("檢測到收合箭頭")
+            return 'hide'
 
+        # Try to detect show arrow (展開)
         show_box = self._locate_arrow(pyautogui_module, self.show_arrow_template, region, anchor_box)
         if show_box is not None:
-            return '展開'
+            self.append_log("檢測到展開箭頭")
+            return 'show'
 
+        self.append_log("未檢測到任何箭頭狀態")
         return None
 
     def _arrow_region(
@@ -1368,14 +1377,3 @@ def launch_ui() -> None:
 
 if __name__ == "__main__":
     launch_ui()
-
-
-
-
-
-
-
-
-
-
-
