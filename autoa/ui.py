@@ -952,27 +952,38 @@ class AutoaApp:
         processed_count = 0
         skipped_count = 0
 
+        failed_detection_count = 0
+
         for idx, location in enumerate(all_locations, start=1):
             location_tuple = self._box_to_tuple(location)
             if location_tuple is None:
                 self.append_log(f"{name} 第 {idx} 項：模板定位解析失敗")
                 continue
 
-            x = location_tuple[0] + location_tuple[2] / 2
-            y = location_tuple[1] + location_tuple[3] / 2
-            current_state = self.detect_arrow_state(pyautogui_module, location_tuple)
-            self.append_log(f"{name} 第 {idx} 項判定：{current_state}，位置 ({int(x)}, {int(y)})")
+            # 計算點擊位置（區塊標題右側，用於切換箭頭）
+            # 使用區塊右側而不是中心，因為箭頭在右側
+            click_x = location_tuple[0] + location_tuple[2] - 30  # 右側往左30像素
+            click_y = location_tuple[1] + location_tuple[3] / 2
 
-            # 如果狀態已符合預期，跳過
-            if current_state == expectation:
+            # 檢測當前箭頭狀態
+            current_state = self.detect_arrow_state(pyautogui_module, location_tuple)
+            self.append_log(f"{name} 第 {idx} 項判定：{current_state}，位置 ({int(click_x)}, {int(click_y)})")
+
+            # 如果無法檢測到箭頭狀態，記錄並嘗試點擊
+            if current_state is None:
+                self.append_log(f"{name} 第 {idx} 項：⚠️ 無法檢測箭頭狀態，將嘗試點擊切換")
+                failed_detection_count += 1
+                # 繼續執行點擊邏輯，因為我們需要確保狀態符合預期
+            elif current_state == expectation:
+                # 狀態已符合預期，跳過
                 self.append_log(f"{name} 第 {idx} 項已符合預期，跳過")
                 skipped_count += 1
                 continue
 
-            # 狀態不符合預期，需要點擊切換
+            # 狀態不符合預期或無法檢測，需要點擊切換
             try:
-                pyautogui_module.moveTo(x, y, duration=0.15)
-                pyautogui_module.click(x, y)
+                pyautogui_module.moveTo(click_x, click_y, duration=0.15)
+                pyautogui_module.click(click_x, click_y)
                 processed_count += 1
 
                 # Wait for UI animation to complete
@@ -982,9 +993,24 @@ class AutoaApp:
                 new_state = self.detect_arrow_state(pyautogui_module, location_tuple)
                 self.append_log(f"{name} 第 {idx} 項點擊後狀態：{new_state}")
 
-                # Retry detection if state is still not as expected
-                if new_state != expectation and new_state is not None:
-                    self.append_log(f"{name} 第 {idx} 項狀態未符合預期，等待後重試檢測...")
+                # 如果點擊後仍無法檢測，再試一次
+                if new_state is None:
+                    self.append_log(f"{name} 第 {idx} 項點擊後仍無法檢測狀態，等待後重試...")
+                    time.sleep(0.5)
+                    new_state = self.detect_arrow_state(pyautogui_module, location_tuple)
+                    self.append_log(f"{name} 第 {idx} 項重試後狀態：{new_state}")
+
+                    # 如果還是無法檢測，可能需要再點一次
+                    if new_state is None:
+                        self.append_log(f"{name} 第 {idx} 項：⚠️ 仍無法檢測狀態，嘗試再次點擊")
+                        pyautogui_module.click(click_x, click_y)
+                        time.sleep(0.8)
+                        new_state = self.detect_arrow_state(pyautogui_module, location_tuple)
+                        self.append_log(f"{name} 第 {idx} 項第二次點擊後狀態：{new_state}")
+
+                # 檢查狀態是否符合預期
+                elif new_state != expectation:
+                    self.append_log(f"{name} 第 {idx} 項狀態未符合預期（{new_state} != {expectation}），等待後重試檢測...")
                     time.sleep(0.5)
                     new_state = self.detect_arrow_state(pyautogui_module, location_tuple)
                     self.append_log(f"{name} 第 {idx} 項重試後狀態：{new_state}")
@@ -996,6 +1022,10 @@ class AutoaApp:
             # Wait for UI to stabilize before processing next item
             if idx < len(all_locations):
                 time.sleep(0.4)
+
+        # 如果檢測失敗次數過多，給出警告
+        if failed_detection_count > 0:
+            self.append_log(f"{name}：⚠️ 有 {failed_detection_count} 項無法檢測箭頭狀態，可能需要調整模板或檢測區域")
 
         # 生成摘要
         total = len(all_locations)
@@ -1168,33 +1198,48 @@ class AutoaApp:
             self.append_log("無法計算箭頭搜索區域")
             return None
 
+        # 輸出搜索區域以便調試
+        box = self._box_to_tuple(anchor_box)
+        if box:
+            self.append_log(f"箭頭檢測區域: 錨點=({box[0]}, {box[1]}, {box[2]}x{box[3]}), 搜索=({region[0]}, {region[1]}, {region[2]}x{region[3]})")
+
         # Try to detect hide arrow (收合) first
         hide_box = self._locate_arrow(pyautogui_module, self.hide_arrow_template, region, anchor_box)
         if hide_box is not None:
-            self.append_log("檢測到收合箭頭")
+            hide_coords = self._box_to_tuple(hide_box)
+            self.append_log(f"✓ 檢測到收合箭頭 (hide) 於 ({hide_coords[0]}, {hide_coords[1]})")
             return 'hide'
 
         # Try to detect show arrow (展開)
         show_box = self._locate_arrow(pyautogui_module, self.show_arrow_template, region, anchor_box)
         if show_box is not None:
-            self.append_log("檢測到展開箭頭")
+            show_coords = self._box_to_tuple(show_box)
+            self.append_log(f"✓ 檢測到展開箭頭 (show) 於 ({show_coords[0]}, {show_coords[1]})")
             return 'show'
 
-        self.append_log("未檢測到任何箭頭狀態")
+        self.append_log("✗ 未檢測到任何箭頭狀態（hide 和 show 模板皆未匹配）")
         return None
 
     def _arrow_region(
         self,
         anchor_box: Any,
     ) -> tuple[int, int, int, int] | None:
+        """計算箭頭搜索區域，箭頭應該在區塊標題的右側"""
         box = self._box_to_tuple(anchor_box)
         if box is None:
             return None
         left, top, width, height = box
-        region_left = max(left - 260, 0)
-        region_top = max(top - 40, 0)
-        region_width = width + 260
-        region_height = height + 160
+
+        # 箭頭通常在區塊標題右側
+        # 從標題左側開始（給一點緩衝）到右側延伸100像素
+        region_left = max(int(left) - 50, 0)
+        # 上下給一些緩衝空間
+        region_top = max(int(top) - 10, 0)
+        # 寬度：覆蓋整個標題寬度 + 右側延伸100像素
+        region_width = int(width) + 150
+        # 高度：標題高度 + 上下緩衝20像素
+        region_height = int(height) + 20
+
         return (region_left, region_top, region_width, region_height)
 
     def _locate_arrow(
@@ -1231,7 +1276,8 @@ class AutoaApp:
             regions.append(clip(expanded))
         regions.append((0, 0, screen_width, screen_height))
 
-        confidence_levels = [TEMPLATE_CONFIDENCE, TEMPLATE_CONFIDENCE - 0.04, TEMPLATE_CONFIDENCE - 0.08, 0.78, 0.74]
+        # 降低信心度閾值，提高檢測成功率
+        confidence_levels = [0.85, 0.80, 0.75, 0.70, 0.65, 0.60]
         seen: set[tuple[int, int, int, int]] = set()
 
         for search_region in regions:
@@ -1246,19 +1292,23 @@ class AutoaApp:
                     confidence=conf,
                 )
                 if loc is not None:
-                    if conf < TEMPLATE_CONFIDENCE:
+                    if conf < 0.85:
                         self.append_log(f"模板 {template_path.name} 使用降級信心 {conf:.2f} 命中。")
                     if region is not None and search_region != region:
                         self.append_log(f"模板 {template_path.name} 擴張區域命中。")
                     return loc
 
+        # OpenCV 備用方案，進一步降低閾值
         for search_region in regions:
             if search_region is None:
                 continue
-            loc = self._match_template_cv(pyautogui_module, template_path, search_region, threshold=0.72)
+            loc = self._match_template_cv(pyautogui_module, template_path, search_region, threshold=0.55)
             if loc is not None:
-                self.append_log(f"模板 {template_path.name} 以 OpenCV 灰階比對命中。")
+                self.append_log(f"模板 {template_path.name} 以 OpenCV 灰階比對命中（閾值 0.55）。")
                 return loc
+
+        # 如果仍然失敗，輸出調試信息
+        self.append_log(f"✗ 模板 {template_path.name} 在所有信心度級別和區域均未命中")
         return None
 
     def _match_template_cv(
