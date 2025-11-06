@@ -940,52 +940,72 @@ class AutoaApp:
         screen_width, screen_height = screen_size
         target_region = (0, 0, screen_width, screen_height) if screen_width and screen_height else None
 
-        location = self._try_locate(pyautogui_module, template, region=target_region, confidence=0.90)
-        if location is None:
-            location = self._try_locate(pyautogui_module, template, region=target_region, confidence=0.82)
-        if location is None:
+        # 使用 locateAllOnScreen 查找所有匹配的位置
+        all_locations = self._try_locate_all(pyautogui_module, template, region=target_region, confidence=0.88)
+
+        if not all_locations:
             self.append_log(f"{name}：模板未命中")
             return f"{name}: 未命中模板"
 
-        location = self._box_to_tuple(location)
-        if location is None:
-            self.append_log(f"{name}：模板定位解析失敗")
-            return f"{name}: 未命中模板"
+        self.append_log(f"{name}：找到 {len(all_locations)} 個匹配項")
 
-        x = location[0] + location[2] / 2
-        y = location[1] + location[3] / 2
-        current_state = self.detect_arrow_state(pyautogui_module, location)
-        self.append_log(f"{name} 初始判定：{current_state}")
+        processed_count = 0
+        skipped_count = 0
 
-        toggled = False
-        if current_state != expectation:
+        for idx, location in enumerate(all_locations, start=1):
+            location_tuple = self._box_to_tuple(location)
+            if location_tuple is None:
+                self.append_log(f"{name} 第 {idx} 項：模板定位解析失敗")
+                continue
+
+            x = location_tuple[0] + location_tuple[2] / 2
+            y = location_tuple[1] + location_tuple[3] / 2
+            current_state = self.detect_arrow_state(pyautogui_module, location_tuple)
+            self.append_log(f"{name} 第 {idx} 項判定：{current_state}，位置 ({int(x)}, {int(y)})")
+
+            # 如果狀態已符合預期，跳過
+            if current_state == expectation:
+                self.append_log(f"{name} 第 {idx} 項已符合預期，跳過")
+                skipped_count += 1
+                continue
+
+            # 狀態不符合預期，需要點擊切換
             try:
                 pyautogui_module.moveTo(x, y, duration=0.15)
                 pyautogui_module.click(x, y)
-                toggled = True
+                processed_count += 1
 
-                # Wait longer for UI animation to complete
+                # Wait for UI animation to complete
                 time.sleep(0.8)
 
                 # Re-detect state after clicking
-                current_state = self.detect_arrow_state(pyautogui_module, location)
-                self.append_log(f"{name} 點擊後狀態：{current_state}")
+                new_state = self.detect_arrow_state(pyautogui_module, location_tuple)
+                self.append_log(f"{name} 第 {idx} 項點擊後狀態：{new_state}")
 
                 # Retry detection if state is still not as expected
-                if current_state != expectation and current_state is not None:
-                    self.append_log(f"{name} 狀態未符合預期，等待後重試檢測...")
+                if new_state != expectation and new_state is not None:
+                    self.append_log(f"{name} 第 {idx} 項狀態未符合預期，等待後重試檢測...")
                     time.sleep(0.5)
-                    current_state = self.detect_arrow_state(pyautogui_module, location)
-                    self.append_log(f"{name} 重試後狀態：{current_state}")
+                    new_state = self.detect_arrow_state(pyautogui_module, location_tuple)
+                    self.append_log(f"{name} 第 {idx} 項重試後狀態：{new_state}")
 
             except Exception as exc:
-                self.append_log(f"{name} 切換失敗：{exc}")
+                self.append_log(f"{name} 第 {idx} 項切換失敗：{exc}")
+                continue
 
-        if current_state == expectation:
-            status = "已校正" if toggled else "符合"
-            summary = f"{name}: {current_state} ({status})"
+            # Wait for UI to stabilize before processing next item
+            if idx < len(all_locations):
+                time.sleep(0.4)
+
+        # 生成摘要
+        total = len(all_locations)
+        if processed_count == 0 and skipped_count == 0:
+            summary = f"{name}: 未找到可處理的項目"
+        elif processed_count == 0:
+            summary = f"{name}: {total} 項已符合預期"
         else:
-            summary = f"{name}: {current_state or '未知'} -> 預期 {expectation}"
+            summary = f"{name}: 已處理 {processed_count} 項，跳過 {skipped_count} 項（共 {total} 項）"
+
         self.append_log(summary)
         return summary
 
@@ -1329,6 +1349,72 @@ class AutoaApp:
                     self.append_log(f"模板比對失敗 ({template_path.name})：{exc}")
 
         return None
+
+    def _try_locate_all(
+        self,
+        pyautogui_module: Any,
+        template_path: Path,
+        *,
+        region: tuple[int, int, int, int] | None = None,
+        confidence: float = TEMPLATE_CONFIDENCE,
+    ) -> list[Any]:
+        """查找所有匹配的模板位置"""
+        if not template_path.exists():
+            return []
+
+        base_kwargs: dict[str, Any] = {}
+        if region is not None:
+            base_kwargs['region'] = region
+
+        results: list[Any] = []
+
+        # 嘗試使用 locateAllOnScreen
+        confidence_list: list[float | None] = []
+        if confidence is not None:
+            confidence_list.append(confidence)
+        confidence_list.append(None)
+
+        for conf in confidence_list:
+            for use_grayscale in (False, True):
+                kwargs = dict(base_kwargs)
+                if conf is not None:
+                    kwargs['confidence'] = max(min(conf, 0.98), 0.55)
+                if use_grayscale:
+                    kwargs['grayscale'] = True
+
+                try:
+                    locations = pyautogui_module.locateAllOnScreen(str(template_path), **kwargs)
+                    # 將生成器轉換為列表
+                    results = list(locations)
+                    if results:
+                        self.append_log(f"使用 locateAllOnScreen 找到 {len(results)} 個匹配項")
+                        return results
+                except TypeError:
+                    # locateAllOnScreen 可能不支持 confidence 參數
+                    kwargs.pop('confidence', None)
+                    try:
+                        locations = pyautogui_module.locateAllOnScreen(str(template_path), **kwargs)
+                        results = list(locations)
+                        if results:
+                            self.append_log(f"使用 locateAllOnScreen（無 confidence）找到 {len(results)} 個匹配項")
+                            return results
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+
+        # 如果 locateAllOnScreen 失敗，回退到單次查找
+        single_location = self._try_locate(
+            pyautogui_module,
+            template_path,
+            region=region,
+            confidence=confidence,
+        )
+        if single_location is not None:
+            self.append_log(f"locateAllOnScreen 失敗，使用單次查找找到 1 個匹配項")
+            return [single_location]
+
+        return []
 
     def _template_paths(self) -> Iterable[Path]:
         yield self.friend_list_template
