@@ -58,6 +58,7 @@ class AutoaApp:
         self.message_text: tk.Text | None = None
         self.image_var = tk.StringVar()
         self.mode_var = tk.StringVar(value="dryrun")
+        self.auto_mode_var = tk.StringVar(value="auto")  # 自動/手動模式
         self.exec_count_var = tk.StringVar(value="1")
         self.throttle_min_var = tk.StringVar(value="1.0")
         self.throttle_max_var = tk.StringVar(value="2.0")
@@ -154,6 +155,13 @@ class AutoaApp:
         mode_frame.grid(row=2, column=1, columnspan=2, sticky="w", pady=(8, 0))
         ttk.Radiobutton(mode_frame, text="乾跑（不實際發送）", value="dryrun", variable=self.mode_var).pack(side="left", padx=(0, 16))
         ttk.Radiobutton(mode_frame, text="正式（實際發送）", value="live", variable=self.mode_var).pack(side="left")
+
+        # 自動/手動模式設置
+        ttk.Label(frame, text="操作模式：").grid(row=3, column=0, sticky="w", pady=(8, 0))
+        auto_mode_frame = ttk.Frame(frame)
+        auto_mode_frame.grid(row=3, column=1, columnspan=2, sticky="w", pady=(8, 0))
+        ttk.Radiobutton(auto_mode_frame, text="自動（含箭頭校正）", value="auto", variable=self.auto_mode_var).pack(side="left", padx=(0, 16))
+        ttk.Radiobutton(auto_mode_frame, text="手動（需先開啟好友視窗）", value="manual", variable=self.auto_mode_var).pack(side="left")
 
     def _build_message_section(self, parent: ttk.Frame) -> None:
         frame = ttk.LabelFrame(parent, text="訊息內容", padding=10)
@@ -395,6 +403,7 @@ class AutoaApp:
 
         image_path = self.image_var.get().strip() or None
         dry_run = self.mode_var.get() != "live"
+        auto_mode = self.auto_mode_var.get() == "auto"
 
         # 呼叫 LINE 視窗到最上層
         try:
@@ -415,13 +424,15 @@ class AutoaApp:
             self.pause_button.configure(text="暫停")
 
         self._toggle_buttons(running=True)
-        self.append_log(f"開始執行流程{'（乾跑模式）' if dry_run else ''}。")
+        mode_text = "手動模式" if not auto_mode else ""
+        dry_run_text = "（乾跑模式）" if dry_run else ""
+        self.append_log(f"開始執行流程{mode_text}{dry_run_text}。")
 
         # 不再使用收件者，使用空字符串
         recipient = ""
         self.worker_thread = threading.Thread(
             target=self._run_flow,
-            args=(recipient, message, image_path, throttle, dry_run),
+            args=(recipient, message, image_path, throttle, dry_run, auto_mode),
             daemon=True,
         )
         self.worker_thread.start()
@@ -465,8 +476,13 @@ class AutoaApp:
         image_path: str | None,
         throttle: tuple[float, float],
         dry_run: bool,
+        auto_mode: bool = True,
     ) -> None:
-        """主流程：批量發送訊息給好友列表"""
+        """主流程：批量發送訊息給好友列表
+
+        Args:
+            auto_mode: True=自動模式（含箭頭校正和點擊第一個好友），False=手動模式（需先手動開啟好友視窗）
+        """
         try:
             import pyautogui
         except ImportError as exc:
@@ -498,44 +514,56 @@ class AutoaApp:
 
             time.sleep(0.5)
 
-            # 2. 執行箭頭校正（只有好友列表展開）
-            self.append_log("步驟 2/3：校正側邊欄（只展開好友列表）")
-            self._set_progress(15.0)
-            if not self._calibrate_arrows_for_friend_only(pyautogui):
-                self.append_log("箭頭校正失敗")
-                self.root.after(0, lambda: messagebox.showwarning('執行失敗', '箭頭校正失敗，請確認側邊欄可見。'))
-                self.root.after(0, lambda: self._on_worker_finished(False))
-                return
+            # 初始化好友列表座標（手動模式下不需要）
+            first_friend_x = 0
+            first_friend_y = 0
 
-            time.sleep(0.5)
+            if auto_mode:
+                # 自動模式：執行箭頭校正並點擊第一個好友
+                # 2. 執行箭頭校正（只有好友列表展開）
+                self.append_log("步驟 2/3：校正側邊欄（只展開好友列表）")
+                self._set_progress(15.0)
+                if not self._calibrate_arrows_for_friend_only(pyautogui):
+                    self.append_log("箭頭校正失敗")
+                    self.root.after(0, lambda: messagebox.showwarning('執行失敗', '箭頭校正失敗，請確認側邊欄可見。'))
+                    self.root.after(0, lambda: self._on_worker_finished(False))
+                    return
 
-            # 3. 找到好友標題並點擊第一個好友
-            self.append_log("步驟 3/3：定位第一個好友")
-            self._set_progress(25.0)
-            friend_template = get_resource_path("templates/friend.png")
-            friend_location = self._try_locate(pyautogui, friend_template, confidence=0.88)
-            if friend_location is None:
-                self.append_log("未找到好友標題")
-                self.root.after(0, lambda: messagebox.showwarning('執行失敗', '未找到好友標題，請確認好友區塊已展開。'))
-                self.root.after(0, lambda: self._on_worker_finished(False))
-                return
+                time.sleep(0.5)
 
-            friend_coords = self._box_to_tuple(friend_location)
-            if friend_coords is None:
-                self.append_log("好友標題位置解析失敗")
-                self.root.after(0, lambda: self._on_worker_finished(False))
-                return
+                # 3. 找到好友標題並點擊第一個好友
+                self.append_log("步驟 3/3：定位第一個好友")
+                self._set_progress(25.0)
+                friend_template = get_resource_path("templates/friend.png")
+                friend_location = self._try_locate(pyautogui, friend_template, confidence=0.88)
+                if friend_location is None:
+                    self.append_log("未找到好友標題")
+                    self.root.after(0, lambda: messagebox.showwarning('執行失敗', '未找到好友標題，請確認好友區塊已展開。'))
+                    self.root.after(0, lambda: self._on_worker_finished(False))
+                    return
 
-            first_friend_x = friend_coords[0] + friend_coords[2] // 2 + 40  # 往右移動 40 像素
-            first_friend_y = friend_coords[1] + friend_coords[3] + 20
+                friend_coords = self._box_to_tuple(friend_location)
+                if friend_coords is None:
+                    self.append_log("好友標題位置解析失敗")
+                    self.root.after(0, lambda: self._on_worker_finished(False))
+                    return
 
-            pyautogui.click(first_friend_x, first_friend_y)
-            self.append_log(f"已選中第一個好友於 ({first_friend_x}, {first_friend_y})")
-            time.sleep(0.5)
+                first_friend_x = friend_coords[0] + friend_coords[2] // 2 + 40  # 往右移動 40 像素
+                first_friend_y = friend_coords[1] + friend_coords[3] + 20
 
-            # 確保 LINE 視窗保持焦點
-            self._ensure_line_focus(pyautogui)
-            time.sleep(0.3)
+                pyautogui.click(first_friend_x, first_friend_y)
+                self.append_log(f"已選中第一個好友於 ({first_friend_x}, {first_friend_y})")
+                time.sleep(0.5)
+
+                # 確保 LINE 視窗保持焦點
+                self._ensure_line_focus(pyautogui)
+                time.sleep(0.3)
+            else:
+                # 手動模式：跳過箭頭校正和點擊第一個好友
+                self.append_log("手動模式：跳過箭頭校正和好友定位")
+                self.append_log("請確認您已手動開啟第一個好友的聊天視窗")
+                self._set_progress(25.0)
+                time.sleep(1.0)
 
             # 4. 開始循環處理每個好友
             self._set_current_step("發送訊息中")
@@ -602,13 +630,14 @@ class AutoaApp:
                     self.append_log(f"  → 延遲 {delay} 秒後切換到下一位好友")
                     time.sleep(delay)
 
-                    # 重要：點擊好友列表區域以恢復焦點
-                    # 使用第一個好友的位置作為參考點
-                    focus_x = first_friend_x
-                    focus_y = first_friend_y + (current_num - 1) * 50  # 估算當前好友的Y位置
-                    pyautogui.click(focus_x, focus_y)
-                    self.append_log(f"  → 重新聚焦到好友列表")
-                    time.sleep(0.3)
+                    if auto_mode:
+                        # 自動模式：點擊好友列表區域以恢復焦點
+                        # 使用第一個好友的位置作為參考點
+                        focus_x = first_friend_x
+                        focus_y = first_friend_y + (current_num - 1) * 50  # 估算當前好友的Y位置
+                        pyautogui.click(focus_x, focus_y)
+                        self.append_log(f"  → 重新聚焦到好友列表")
+                        time.sleep(0.3)
 
                     # 按 DOWN 鍵切換到下一個好友
                     pyautogui.press('down')
