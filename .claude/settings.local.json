@@ -12,7 +12,8 @@
       "Bash(python convert_icon.py:*)",
       "Bash(git pull:*)",
       "Bash(git commit:*)",
-      "Bash(git restore:*)"
+      "Bash(git restore:*)",
+      "Bash(python -c:*)"
     ],
     "deny": [],
     "ask": []

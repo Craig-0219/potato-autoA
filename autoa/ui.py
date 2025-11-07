@@ -955,15 +955,33 @@ class AutoaApp:
         if line_region:
             left, top, width, height = line_region
             self.append_log(f"  → LINE 視窗範圍：X={left}, Y={top}, 寬={width}, 高={height}")
-            target_region = line_region
         else:
-            self.append_log("  → 無法獲取 LINE 視窗範圍，使用全螢幕搜尋")
-            target_region = None
+            self.append_log("  → 無法獲取 LINE 視窗範圍")
+            left, top, width, height = 0, 0, screen_width if screen_width else 1920, screen_height if screen_height else 1080
 
         # 先滾動到最上方，確保所有箭頭都在可見範圍內
         self.append_log("  → 滾動左側面板到頂部")
         self._scroll_left_panel_to_top(pyautogui_module)
         time.sleep(0.5)  # 等待滾動完成
+
+        # 動態偵測左側面板寬度（使用 friend-list 按鈕位置）
+        friend_list_location = self._try_locate(pyautogui_module, self.friend_list_template, confidence=0.88)
+        if friend_list_location:
+            coords = self._box_to_tuple(friend_list_location)
+            if coords:
+                # 左側面板寬度 = friend-list 按鈕的右邊界 + 150 像素餘量
+                left_panel_width = int(coords[0] + coords[2] + 150) - left
+                self.append_log(f"  → 動態偵測左側面板寬度：{left_panel_width} 像素")
+            else:
+                left_panel_width = 400
+                self.append_log(f"  → 無法解析 friend-list 位置，使用預設寬度：{left_panel_width} 像素")
+        else:
+            left_panel_width = 400
+            self.append_log(f"  → 未偵測到 friend-list 按鈕，使用預設寬度：{left_panel_width} 像素")
+
+        # 限制搜尋範圍：只搜尋 LINE 視窗的左側面板
+        target_region = (left, top, left_panel_width, height)
+        self.append_log(f"  → 箭頭搜尋範圍：X={left}, Y={top}, 寬={left_panel_width}, 高={height}")
 
         # === 初始診斷：檢查當前箭頭狀態 ===
         self.append_log("  → 初始診斷：檢查當前箭頭狀態")
@@ -985,11 +1003,6 @@ class AutoaApp:
         initial_hide_count = len(initial_hide) if initial_hide else 0
 
         self.append_log(f"    初始狀態：{initial_show_count} 個展開箭頭、{initial_hide_count} 個收合箭頭")
-
-        if target_region:
-            self.append_log(f"    搜尋範圍：LINE 視窗內 ({target_region[2]}x{target_region[3]} 像素)")
-        else:
-            self.append_log(f"    搜尋範圍：全螢幕")
 
         if initial_show and initial_show_count > 0:
             self.append_log(f"    展開箭頭位置：")
