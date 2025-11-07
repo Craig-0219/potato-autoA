@@ -969,14 +969,14 @@ class AutoaApp:
         if friend_list_location:
             coords = self._box_to_tuple(friend_list_location)
             if coords:
-                # 左側面板寬度 = friend-list 按鈕的右邊界 + 150 像素餘量
-                left_panel_width = int(coords[0] + coords[2] + 150) - left
+                # 左側面板寬度 = friend-list 按鈕的右邊界 + 300 像素餘量（擴大搜尋範圍）
+                left_panel_width = int(coords[0] + coords[2] + 300) - left
                 self.append_log(f"  → 動態偵測左側面板寬度：{left_panel_width} 像素")
             else:
-                left_panel_width = 400
+                left_panel_width = 500
                 self.append_log(f"  → 無法解析 friend-list 位置，使用預設寬度：{left_panel_width} 像素")
         else:
-            left_panel_width = 400
+            left_panel_width = 500
             self.append_log(f"  → 未偵測到 friend-list 按鈕，使用預設寬度：{left_panel_width} 像素")
 
         # 限制搜尋範圍：只搜尋 LINE 視窗的左側面板（排除底部 80 像素避免抓到工作列）
