@@ -979,9 +979,11 @@ class AutoaApp:
             left_panel_width = 400
             self.append_log(f"  → 未偵測到 friend-list 按鈕，使用預設寬度：{left_panel_width} 像素")
 
-        # 限制搜尋範圍：只搜尋 LINE 視窗的左側面板
-        target_region = (left, top, left_panel_width, height)
-        self.append_log(f"  → 箭頭搜尋範圍：X={left}, Y={top}, 寬={left_panel_width}, 高={height}")
+        # 限制搜尋範圍：只搜尋 LINE 視窗的左側面板（排除底部 80 像素避免抓到工作列）
+        bottom_margin = 80  # 預留底部餘量，避免抓到工作列
+        search_height = max(height - bottom_margin, 400)  # 至少保留 400 像素高度
+        target_region = (left, top, left_panel_width, search_height)
+        self.append_log(f"  → 箭頭搜尋範圍：X={left}, Y={top}, 寬={left_panel_width}, 高={search_height}（已排除底部 {bottom_margin} 像素）")
 
         # === 初始診斷：檢查當前箭頭狀態 ===
         self.append_log("  → 初始診斷：檢查當前箭頭狀態")
