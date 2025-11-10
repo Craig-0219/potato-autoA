@@ -677,9 +677,21 @@ class AutoaApp:
                             pyautogui.click(first_friend_x, first_friend_y)
                             time.sleep(0.3)
 
+                    # 手動模式：按 ESC -> DOWN -> ENTER 切換並開啟下一個好友
+                    if not auto_mode:
+                        self.append_log(f"  → 手動模式：按 ESC 離開輸入框")
+                        pyautogui.press('esc')
+                        time.sleep(0.3)
+
                     # 按 DOWN 鍵切換到下一個好友
                     pyautogui.press('down')
                     time.sleep(0.3)
+
+                    # 手動模式：按 ENTER 開啟對話窗口
+                    if not auto_mode:
+                        self.append_log(f"  → 手動模式：按 ENTER 開啟對話窗口")
+                        pyautogui.press('enter')
+                        time.sleep(0.3)
 
             # 5. 完成
             self._set_progress(100.0)
