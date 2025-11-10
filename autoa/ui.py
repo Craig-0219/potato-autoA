@@ -557,7 +557,6 @@ class AutoaApp:
             # 4. 開始循環處理每個好友
             self._set_current_step("發送訊息中")
             sent_count = 0
-            clicked_count = 0
             consecutive_failures = 0  # 連續失敗計數器
             MAX_CONSECUTIVE_FAILURES = 3  # 最大連續失敗次數
 
@@ -574,30 +573,6 @@ class AutoaApp:
                 self._set_progress(progress)
 
                 self.append_log(f"\n處理第 {current_num}/{friend_count} 位好友...")
-
-                # 檢測 greenchat.png 並處理聚焦
-                greenchat_location = self._try_locate(pyautogui, self.greenchat_template, confidence=0.95)
-
-                if greenchat_location:
-                    # 有綠色按鈕，需要點擊打開聊天窗口
-                    greenchat_coords = self._box_to_tuple(greenchat_location)
-                    if greenchat_coords:
-                        click_x = greenchat_coords[0] + greenchat_coords[2] // 2
-                        click_y = greenchat_coords[1] + greenchat_coords[3] // 2
-
-                        self.append_log(f"  → 檢測到綠色按鈕，點擊開啟聊天窗口")
-                        pyautogui.click(click_x, click_y)
-                        if self._interruptible_sleep(1.2):
-                            self.append_log("用戶中止流程")
-                            break
-
-                        # 驗證按鈕消失
-                        check_location = self._try_locate(pyautogui, self.greenchat_template, confidence=0.90)
-                        if not check_location:
-                            clicked_count += 1
-                            self.append_log(f"  ✓ 聊天窗口已開啟")
-                        else:
-                            self.append_log(f"  ⚠ 開啟可能失敗")
 
                 # 聚焦：偵測 message_cube.png 並點擊中央
                 self.append_log(f"  → 偵測訊息輸入框以恢復焦點")
@@ -732,7 +707,7 @@ class AutoaApp:
             self._set_current_step("完成")
             self.append_log(f"\n流程完成！處理了 {friend_count} 位好友，發送了 {sent_count} 次訊息")
             self.root.after(0, lambda: messagebox.showinfo('流程完成',
-                f'已處理 {friend_count} 位好友\n成功發送 {sent_count} 次訊息\n點擊綠色按鈕 {clicked_count} 次'))
+                f'已處理 {friend_count} 位好友\n成功發送 {sent_count} 次訊息'))
             self.root.after(0, lambda: self._on_worker_finished(True))
 
         except Exception as exc:
@@ -1193,14 +1168,6 @@ class AutoaApp:
         except Exception as exc:
             self.append_log(f"  ✗ 發送訊息時發生錯誤：{exc}")
             return False
-
-    def _detect_greenchat(self, pyautogui_module: Any) -> bool:
-        """檢測是否存在綠色聊天框"""
-        if not self.greenchat_template.exists():
-            return False
-
-        location = self._try_locate(pyautogui_module, self.greenchat_template, confidence=0.85)
-        return location is not None
 
     def _scroll_left_panel_to_top(
         self,
