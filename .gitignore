@@ -12,6 +12,14 @@ env/
 venv/
 ENV/
 
+# PyInstaller 建構產物
+build/
+dist/
+*.spec.lock
+
+# 除錯檔案
+debug_*.png
+
 # 資料和報告
 data/
 logs/
@@ -27,3 +35,6 @@ reports/
 # OS
 .DS_Store
 Thumbs.db
+
+# Claude 設定
+.claude/

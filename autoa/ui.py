@@ -58,7 +58,7 @@ class AutoaApp:
         self.message_text: tk.Text | None = None
         self.image_var = tk.StringVar()
         self.mode_var = tk.StringVar(value="dryrun")
-        self.auto_mode_var = tk.StringVar(value="auto")  # 自動/手動模式
+        self.auto_mode_var = tk.StringVar(value="manual")  # 自動/手動模式（暫時只開放手動）
         self.exec_count_var = tk.StringVar(value="1")
         self.throttle_min_var = tk.StringVar(value="1.0")
         self.throttle_max_var = tk.StringVar(value="2.0")
@@ -156,11 +156,11 @@ class AutoaApp:
         ttk.Radiobutton(mode_frame, text="乾跑（不實際發送）", value="dryrun", variable=self.mode_var).pack(side="left", padx=(0, 16))
         ttk.Radiobutton(mode_frame, text="正式（實際發送）", value="live", variable=self.mode_var).pack(side="left")
 
-        # 自動/手動模式設置
+        # 自動/手動模式設置（暫時只開放手動模式）
         ttk.Label(frame, text="操作模式：").grid(row=3, column=0, sticky="w", pady=(8, 0))
         auto_mode_frame = ttk.Frame(frame)
         auto_mode_frame.grid(row=3, column=1, columnspan=2, sticky="w", pady=(8, 0))
-        ttk.Radiobutton(auto_mode_frame, text="自動（含箭頭校正）", value="auto", variable=self.auto_mode_var).pack(side="left", padx=(0, 16))
+        ttk.Radiobutton(auto_mode_frame, text="自動（含箭頭校正）", value="auto", variable=self.auto_mode_var, state="disabled").pack(side="left", padx=(0, 16))
         ttk.Radiobutton(auto_mode_frame, text="手動（需先開啟好友視窗）", value="manual", variable=self.auto_mode_var).pack(side="left")
 
     def _build_message_section(self, parent: ttk.Frame) -> None:
@@ -554,16 +554,38 @@ class AutoaApp:
                 pyautogui.click(first_friend_x, first_friend_y)
                 self.append_log(f"已選中第一個好友於 ({first_friend_x}, {first_friend_y})")
                 time.sleep(0.5)
-
-                # 確保 LINE 視窗保持焦點
-                self._ensure_line_focus(pyautogui)
-                time.sleep(0.3)
             else:
                 # 手動模式：跳過箭頭校正和點擊第一個好友
                 self.append_log("手動模式：跳過箭頭校正和好友定位")
-                self.append_log("請確認您已手動開啟第一個好友的聊天視窗")
+                self.append_log("等待用戶確認已開啟第一個好友的聊天視窗...")
                 self._set_progress(25.0)
-                time.sleep(1.0)
+
+                # 彈出確認框，確保用戶已手動開啟第一個好友的聊天視窗
+                confirmed = [None]  # None 表示尚未回應，True 表示確認，False 表示取消
+                def show_confirm():
+                    result = messagebox.askyesno(
+                        '確認聊天視窗',
+                        '請確認您是否已手動開啟第一個好友的聊天視窗？\n\n點擊「是」繼續執行，點擊「否」取消流程。'
+                    )
+                    confirmed[0] = result
+
+                self.root.after(0, show_confirm)
+
+                # 等待用戶確認
+                while confirmed[0] is None:
+                    time.sleep(0.1)
+                    if self.stop_event.is_set():
+                        self.append_log("用戶中止流程")
+                        self.root.after(0, lambda: self._on_worker_finished(False))
+                        return
+
+                if not confirmed[0]:
+                    self.append_log("用戶取消流程")
+                    self.root.after(0, lambda: self._on_worker_finished(False))
+                    return
+
+                self.append_log("用戶已確認聊天視窗已開啟，繼續執行...")
+                time.sleep(0.5)
 
             # 4. 開始循環處理每個好友
             self._set_current_step("發送訊息中")
@@ -584,31 +606,19 @@ class AutoaApp:
 
                 self.append_log(f"\n處理第 {current_num}/{friend_count} 位好友...")
 
-                # 確保 LINE 視窗有焦點
-                self._ensure_line_focus(pyautogui)
-                time.sleep(0.3)
-
-                # 檢測 greenchat.png
+                # 檢測 greenchat.png 並處理聚焦
                 greenchat_location = self._try_locate(pyautogui, self.greenchat_template, confidence=0.95)
 
                 if greenchat_location:
                     # 有綠色按鈕，需要點擊打開聊天窗口
                     greenchat_coords = self._box_to_tuple(greenchat_location)
                     if greenchat_coords:
-                        # 點擊前再次確保焦點
-                        self._ensure_line_focus(pyautogui)
-                        time.sleep(0.2)
-
                         click_x = greenchat_coords[0] + greenchat_coords[2] // 2
                         click_y = greenchat_coords[1] + greenchat_coords[3] // 2
 
                         self.append_log(f"  → 檢測到綠色按鈕，點擊開啟聊天窗口")
                         pyautogui.click(click_x, click_y)
                         time.sleep(1.2)
-
-                        # 點擊後再次確保焦點
-                        self._ensure_line_focus(pyautogui)
-                        time.sleep(0.2)
 
                         # 驗證按鈕消失
                         check_location = self._try_locate(pyautogui, self.greenchat_template, confidence=0.90)
@@ -617,6 +627,22 @@ class AutoaApp:
                             self.append_log(f"  ✓ 聊天窗口已開啟")
                         else:
                             self.append_log(f"  ⚠ 開啟可能失敗")
+
+                # 聚焦：偵測 message_cube.png 並點擊中央
+                self.append_log(f"  → 偵測訊息輸入框以恢復焦點")
+                message_cube_location = self._try_locate(pyautogui, self.message_cube_template, confidence=0.85)
+                if message_cube_location:
+                    cube_coords = self._box_to_tuple(message_cube_location)
+                    if cube_coords:
+                        focus_x = cube_coords[0] + cube_coords[2] // 2
+                        focus_y = cube_coords[1] + cube_coords[3] // 2
+                        pyautogui.click(focus_x, focus_y)
+                        self.append_log(f"  → 已點擊訊息輸入框中央恢復焦點 ({focus_x}, {focus_y})")
+                        time.sleep(0.3)
+                    else:
+                        self.append_log(f"  ⚠ 無法解析訊息輸入框位置")
+                else:
+                    self.append_log(f"  ⚠ 未找到訊息輸入框，跳過聚焦")
 
                 # 發送訊息
                 if self._send_message_to_current_chat(pyautogui, message, image_path, dry_run):
@@ -630,14 +656,26 @@ class AutoaApp:
                     self.append_log(f"  → 延遲 {delay} 秒後切換到下一位好友")
                     time.sleep(delay)
 
-                    if auto_mode:
-                        # 自動模式：點擊好友列表區域以恢復焦點
-                        # 使用第一個好友的位置作為參考點
-                        focus_x = first_friend_x
-                        focus_y = first_friend_y + (current_num - 1) * 50  # 估算當前好友的Y位置
-                        pyautogui.click(focus_x, focus_y)
-                        self.append_log(f"  → 重新聚焦到好友列表")
-                        time.sleep(0.3)
+                    if auto_mode and idx == 0:
+                        # 自動模式：偵測 message_cube.png 並點擊中央以恢復焦點
+                        self.append_log(f"  → 偵測訊息輸入框以恢復焦點")
+                        message_cube_location = self._try_locate(pyautogui, self.message_cube_template, confidence=0.85)
+                        if message_cube_location:
+                            cube_coords = self._box_to_tuple(message_cube_location)
+                            if cube_coords:
+                                focus_x = cube_coords[0] + cube_coords[2] // 2
+                                focus_y = cube_coords[1] + cube_coords[3] // 2
+                                pyautogui.click(focus_x, focus_y)
+                                self.append_log(f"  → 已點擊訊息輸入框中央恢復焦點 ({focus_x}, {focus_y})")
+                                time.sleep(0.3)
+                            else:
+                                self.append_log(f"  ⚠ 無法解析訊息輸入框位置，使用好友列表位置")
+                                pyautogui.click(first_friend_x, first_friend_y)
+                                time.sleep(0.3)
+                        else:
+                            self.append_log(f"  ⚠ 未找到訊息輸入框，使用好友列表位置")
+                            pyautogui.click(first_friend_x, first_friend_y)
+                            time.sleep(0.3)
 
                     # 按 DOWN 鍵切換到下一個好友
                     pyautogui.press('down')
@@ -1234,10 +1272,19 @@ class AutoaApp:
     ) -> bool:
         """發送訊息到當前打開的聊天窗口"""
         try:
-            # 確保 LINE 視窗有焦點
-            self._ensure_line_focus(pyautogui_module)
+            # 0. 先確保 LINE 視窗在前景
+            self.append_log("  → 確保 LINE 視窗在前景")
+            windows = pyautogui_module.getWindowsWithTitle("LINE")
+            if not windows:
+                self.append_log("  ⚠ 未找到 LINE 視窗")
+                return False
+
+            window = windows[0]
+            window.activate()
+            time.sleep(0.5)  # 增加等待時間，確保視窗完全激活
 
             # 1. 找到訊息輸入框（使用 message_cube.png 模板）
+            self.append_log("  → 偵測訊息輸入框")
             message_cube_location = self._try_locate(pyautogui_module, self.message_cube_template, confidence=0.85)
 
             if not message_cube_location:
@@ -1248,17 +1295,17 @@ class AutoaApp:
             if not cube_coords:
                 return False
 
-            # 計算輸入框的點擊位置（在 message_cube 右側）
-            input_x = cube_coords[0] + cube_coords[2] + 50
+            # 除錯：顯示偵測到的 message_cube 位置
+            self.append_log(f"  → message_cube 位置：({cube_coords[0]}, {cube_coords[1]}) 寬={cube_coords[2]} 高={cube_coords[3]}")
+
+            # 計算輸入框的點擊位置（偵測到區域的中心）
+            input_x = cube_coords[0] + cube_coords[2] // 2
             input_y = cube_coords[1] + cube_coords[3] // 2
 
-            # 2. 點擊輸入框獲得焦點
+            # 2. 點擊輸入框，確保游標在輸入框中
+            self.append_log(f"  → 點擊輸入框中心座標 ({input_x}, {input_y})")
             pyautogui_module.click(input_x, input_y)
-            time.sleep(0.2)
-
-            # 確保焦點在點擊後仍然在 LINE
-            self._ensure_line_focus(pyautogui_module)
-            time.sleep(0.1)
+            time.sleep(0.5)  # 等待游標出現並穩定
 
             # 3. 貼上訊息文字（使用剪貼簿）
             if message:
@@ -1267,17 +1314,11 @@ class AutoaApp:
 
                     self.append_log("  → 準備複製訊息到剪貼簿")
                     pyperclip.copy(message)
-
-                    # 剪貼簿操作後立即確保焦點（防止剪貼簿工具搶焦點）
-                    self._ensure_line_focus(pyautogui_module)
-                    time.sleep(0.1)
+                    time.sleep(0.2)
 
                     self.append_log("  → 貼上訊息")
                     pyautogui_module.hotkey('ctrl', 'v')
                     time.sleep(0.3)
-
-                    # 貼上後再次確保焦點
-                    self._ensure_line_focus(pyautogui_module)
 
                 except ImportError:
                     self.append_log("  ⚠ pyperclip 未安裝，無法貼上訊息")
@@ -1291,100 +1332,65 @@ class AutoaApp:
                 abs_image_path = str(Path(image_path).absolute())
 
                 try:
-                    import pyperclip
                     from PIL import Image
+                    import io
+                    import win32clipboard
 
-                    # 方法1：嘗試使用剪貼簿直接複製圖片
-                    try:
-                        # 使用 PIL 打開圖片
-                        img = Image.open(abs_image_path)
+                    # 打開圖片
+                    self.append_log(f"  → 讀取圖片文件")
+                    img = Image.open(abs_image_path)
 
-                        # Windows: 使用 win32clipboard 複製圖片到剪貼簿
-                        import io
-                        import win32clipboard
-                        from PIL import ImageGrab
+                    # 轉換為 RGB 模式（移除透明通道）
+                    if img.mode == 'RGBA':
+                        # 創建白色背景
+                        background = Image.new('RGB', img.size, (255, 255, 255))
+                        background.paste(img, mask=img.split()[3])  # 使用 alpha 通道作為 mask
+                        img = background
+                    elif img.mode != 'RGB':
+                        img = img.convert('RGB')
 
-                        output = io.BytesIO()
-                        img.convert("RGB").save(output, "BMP")
-                        data = output.getvalue()[14:]  # BMP 文件頭是 14 字節
-                        output.close()
+                    # 將圖片轉換為 BMP 格式並複製到剪貼簿
+                    self.append_log(f"  → 複製圖片到剪貼簿")
+                    output = io.BytesIO()
+                    img.save(output, 'BMP')
+                    data = output.getvalue()[14:]  # 移除 BMP 文件頭（14 字節）
+                    output.close()
 
-                        win32clipboard.OpenClipboard()
-                        win32clipboard.EmptyClipboard()
-                        win32clipboard.SetClipboardData(win32clipboard.CF_DIB, data)
-                        win32clipboard.CloseClipboard()
+                    # 複製到剪貼簿
+                    win32clipboard.OpenClipboard()
+                    win32clipboard.EmptyClipboard()
+                    win32clipboard.SetClipboardData(win32clipboard.CF_DIB, data)
+                    win32clipboard.CloseClipboard()
 
-                        # 剪貼簿操作後確保焦點
-                        self._ensure_line_focus(pyautogui_module)
-                        time.sleep(0.2)
+                    time.sleep(0.3)
 
-                        # 貼上圖片
-                        self.append_log(f"  → 貼上圖片")
-                        pyautogui_module.hotkey('ctrl', 'v')
-                        time.sleep(1.0)
+                    # 在聊天框中貼上圖片
+                    self.append_log(f"  → 貼上圖片到聊天框")
+                    pyautogui_module.hotkey('ctrl', 'v')
+                    time.sleep(1.0)  # 等待圖片載入
 
-                        # 貼上後確保焦點
-                        self._ensure_line_focus(pyautogui_module)
-
-                        self.append_log(f"  ✓ 圖片已附加（方法1：剪貼簿）")
-
-                    except Exception as e1:
-                        # 方法2：使用拖放功能
-                        self.append_log(f"  → 方法1失敗（{e1}），嘗試方法2：文件拖放")
-
-                        # 保存當前剪貼簿內容
-                        saved_clipboard = None
-                        try:
-                            saved_clipboard = pyperclip.paste()
-                        except:
-                            pass
-
-                        # 複製文件路徑並模擬拖放
-                        pyperclip.copy(abs_image_path)
-
-                        # 剪貼簿操作後確保焦點
-                        self._ensure_line_focus(pyautogui_module)
-                        time.sleep(0.1)
-
-                        # 使用 Ctrl+V 直接貼上（某些版本的 LINE 支持貼上文件路徑）
-                        pyautogui_module.hotkey('ctrl', 'v')
-                        time.sleep(1.5)
-
-                        # 貼上後確保焦點
-                        self._ensure_line_focus(pyautogui_module)
-
-                        # 恢復剪貼簿
-                        if saved_clipboard:
-                            try:
-                                pyperclip.copy(saved_clipboard)
-                            except:
-                                pass
-
-                        self.append_log(f"  ✓ 圖片已附加（方法2：路徑貼上）")
+                    self.append_log(f"  ✓ 圖片已附加")
 
                 except Exception as e:
                     self.append_log(f"  ✗ 圖片附加失敗：{e}")
-                    self.append_log(f"  → 建議：請手動測試在 LINE 聊天窗口中如何附加圖片")
+                    import traceback
+                    self.append_log(f"  詳細錯誤：{traceback.format_exc()}")
                     # 即使附加失敗，仍然繼續發送文字訊息
 
             # 5. 發送訊息
-            # 發送前最後一次確保焦點
-            self._ensure_line_focus(pyautogui_module)
-            time.sleep(0.1)
-
             if dry_run:
                 self.append_log("  → 乾跑模式：不實際發送")
                 # 選取全部內容（Ctrl+A）然後刪除（Delete）
                 pyautogui_module.hotkey('ctrl', 'a')
                 time.sleep(0.2)
                 pyautogui_module.press('delete')
-                time.sleep(0.5)
+                time.sleep(0.3)
                 return True
             else:
                 self.append_log("  → 發送訊息")
                 # 按 Enter 發送
                 pyautogui_module.press('enter')
-                time.sleep(0.5)
+                time.sleep(0.3)
                 return True
 
         except Exception as exc:
@@ -2067,23 +2073,6 @@ class AutoaApp:
             # 使用 activate() 將視窗置頂
             window.activate()
             time.sleep(0.5)
-
-            # 額外點擊視窗中心確保獲得焦點
-            try:
-                # 獲取視窗位置和大小
-                left = getattr(window, "left", 0)
-                top = getattr(window, "top", 0)
-                width = getattr(window, "width", 800)
-                height = getattr(window, "height", 600)
-
-                # 點擊視窗中心
-                center_x = left + width // 2
-                center_y = top + height // 2
-                pyautogui_module.click(center_x, center_y)
-                time.sleep(0.3)
-                self.append_log("已將 LINE 視窗置頂並獲得焦點。")
-            except Exception as click_exc:
-                self.append_log(f"點擊視窗中心失敗：{click_exc}")
 
         except Exception as exc:
             self.append_log(f"聚焦 LINE 失敗：{exc}")
