@@ -92,7 +92,6 @@ class AutoaApp:
         # 模板會根據主題動態加載
         self.friend_list_template = None
         self.message_cube_template = None
-        self.greenchat_template = get_resource_path("templates/greenchat.png")  # 兩種主題共用
 
         # 綁定主題變更事件
         self.theme_var.trace_add('write', self._on_theme_changed)
@@ -119,7 +118,6 @@ class AutoaApp:
 
         self.friend_list_template = get_resource_path(f"templates/{prefix}friend-list.png")
         self.message_cube_template = get_resource_path(f"templates/{prefix}message_cube.png")
-        # greenchat.png 兩種主題共用，不需要重新加載
 
     # ------------------------------------------------------------------
     def _build_ui(self) -> None:
@@ -557,7 +555,6 @@ class AutoaApp:
             # 4. 開始循環處理每個好友
             self._set_current_step("發送訊息中")
             sent_count = 0
-            clicked_count = 0
             consecutive_failures = 0  # 連續失敗計數器
             MAX_CONSECUTIVE_FAILURES = 3  # 最大連續失敗次數
 
@@ -574,30 +571,6 @@ class AutoaApp:
                 self._set_progress(progress)
 
                 self.append_log(f"\n處理第 {current_num}/{friend_count} 位好友...")
-
-                # 檢測 greenchat.png 並處理聚焦
-                greenchat_location = self._try_locate(pyautogui, self.greenchat_template, confidence=0.95)
-
-                if greenchat_location:
-                    # 有綠色按鈕，需要點擊打開聊天窗口
-                    greenchat_coords = self._box_to_tuple(greenchat_location)
-                    if greenchat_coords:
-                        click_x = greenchat_coords[0] + greenchat_coords[2] // 2
-                        click_y = greenchat_coords[1] + greenchat_coords[3] // 2
-
-                        self.append_log(f"  → 檢測到綠色按鈕，點擊開啟聊天窗口")
-                        pyautogui.click(click_x, click_y)
-                        if self._interruptible_sleep(1.2):
-                            self.append_log("用戶中止流程")
-                            break
-
-                        # 驗證按鈕消失
-                        check_location = self._try_locate(pyautogui, self.greenchat_template, confidence=0.90)
-                        if not check_location:
-                            clicked_count += 1
-                            self.append_log(f"  ✓ 聊天窗口已開啟")
-                        else:
-                            self.append_log(f"  ⚠ 開啟可能失敗")
 
                 # 聚焦：偵測 message_cube.png 並點擊中央
                 self.append_log(f"  → 偵測訊息輸入框以恢復焦點")
@@ -732,7 +705,7 @@ class AutoaApp:
             self._set_current_step("完成")
             self.append_log(f"\n流程完成！處理了 {friend_count} 位好友，發送了 {sent_count} 次訊息")
             self.root.after(0, lambda: messagebox.showinfo('流程完成',
-                f'已處理 {friend_count} 位好友\n成功發送 {sent_count} 次訊息\n點擊綠色按鈕 {clicked_count} 次'))
+                f'已處理 {friend_count} 位好友\n成功發送 {sent_count} 次訊息'))
             self.root.after(0, lambda: self._on_worker_finished(True))
 
         except Exception as exc:
@@ -957,15 +930,10 @@ class AutoaApp:
             self._ensure_line_focus(pyautogui)
             time.sleep(0.3)
 
-            opened_count = 0
-            clicked_count = 0  # 記錄點擊 greenchat 的次數
-            max_attempts = friend_count * 3  # 最多嘗試 3 倍數量，防止無限循環
-
-            # 5. 開始循環檢測和導航
-            for attempt in range(max_attempts):
-                # 每個好友都算進度
-                opened_count += 1
-                self.append_log(f"檢測第 {opened_count} 位好友（共 {friend_count} 位）...")
+            # 5. 開始循環遍歷好友
+            for idx in range(friend_count):
+                current_num = idx + 1
+                self.append_log(f"第 {current_num}/{friend_count} 位好友")
 
                 # 確保 LINE 視窗有焦點
                 self._ensure_line_focus(pyautogui)
@@ -973,66 +941,9 @@ class AutoaApp:
                 # 短暫等待讓 UI 穩定
                 time.sleep(0.3)
 
-                # 檢測是否有 greenchat.png（使用極高信心度避免誤判）
-                greenchat_location = self._try_locate(pyautogui, self.greenchat_template, confidence=0.95)
-
-                if greenchat_location:
-                    # 保存匹配區域的截圖進行驗證
-                    greenchat_coords = self._box_to_tuple(greenchat_location)
-                    if greenchat_coords:
-                        # 計算 greenchat.png 按鈕的中心點
-                        click_x = greenchat_coords[0] + greenchat_coords[2] // 2
-                        click_y = greenchat_coords[1] + greenchat_coords[3] // 2
-
-                        try:
-                            # 截取並保存匹配區域
-                            screenshot = pyautogui.screenshot()
-                            matched_region = screenshot.crop((
-                                greenchat_coords[0],
-                                greenchat_coords[1],
-                                greenchat_coords[0] + greenchat_coords[2],
-                                greenchat_coords[1] + greenchat_coords[3]
-                            ))
-                            matched_path = Path(f'debug_matched_region_{opened_count}.png')
-                            matched_region.save(str(matched_path))
-
-                            self.append_log(
-                                f"第 {opened_count} 位好友：檢測到 greenchat.png "
-                                f"位置=({greenchat_coords[0]}, {greenchat_coords[1]}), "
-                                f"大小=({greenchat_coords[2]}x{greenchat_coords[3]})"
-                            )
-                            self.append_log(f"  → 匹配區域: {matched_path}")
-
-                        except Exception as e:
-                            self.append_log(f"  → 保存調試截圖失敗: {e}")
-
-                        # 點擊前確保焦點
-                        self._ensure_line_focus(pyautogui)
-                        time.sleep(0.2)
-
-                        # 點擊按鈕
-                        pyautogui.click(click_x, click_y)
-                        self.append_log(f"  → 點擊於 ({click_x}, {click_y})")
-                        time.sleep(1.2)  # 增加延遲，等待聊天窗口打開
-
-                        # 點擊後確保焦點
-                        self._ensure_line_focus(pyautogui)
-                        time.sleep(0.2)
-
-                        # 檢查是否成功（按鈕消失）
-                        check_location = self._try_locate(pyautogui, self.greenchat_template, confidence=0.90)
-                        if not check_location:
-                            clicked_count += 1
-                            self.append_log(f"  ✓ 按鈕已消失，點擊成功！（累計 {clicked_count} 次）")
-                        else:
-                            self.append_log(f"  ⚠ 按鈕仍在，可能是誤判（請檢查 {matched_path}）")
-                else:
-                    # 沒有綠色聊天框（可能已經開啟過）
-                    self.append_log(f"第 {opened_count} 位好友：無綠色聊天框")
-
                 # 檢查是否已達目標數量
-                if opened_count >= friend_count:
-                    self.append_log(f"已完成 {opened_count} 位好友的處理（點擊 greenchat {clicked_count} 次）")
+                if current_num >= friend_count:
+                    self.append_log(f"已完成 {friend_count} 位好友的遍歷")
                     break
 
                 # 使用方向鍵下移到下一個好友
@@ -1040,10 +951,7 @@ class AutoaApp:
                 time.sleep(delay)
 
             # 6. 完成報告
-            if opened_count >= friend_count:
-                self.root.after(0, lambda: messagebox.showinfo('測試完成', f'已處理 {opened_count} 位好友，點擊 greenchat {clicked_count} 次。'))
-            else:
-                self.root.after(0, lambda: messagebox.showwarning('測試完成', f'僅處理 {opened_count} 位好友（目標：{friend_count}），點擊 greenchat {clicked_count} 次。'))
+            self.root.after(0, lambda: messagebox.showinfo('測試完成', f'已遍歷 {friend_count} 位好友'))
 
         except Exception as exc:
             self.append_log(f'聊天測試發生錯誤：{exc}')
@@ -1193,14 +1101,6 @@ class AutoaApp:
         except Exception as exc:
             self.append_log(f"  ✗ 發送訊息時發生錯誤：{exc}")
             return False
-
-    def _detect_greenchat(self, pyautogui_module: Any) -> bool:
-        """檢測是否存在綠色聊天框"""
-        if not self.greenchat_template.exists():
-            return False
-
-        location = self._try_locate(pyautogui_module, self.greenchat_template, confidence=0.85)
-        return location is not None
 
     def _scroll_left_panel_to_top(
         self,
@@ -1828,7 +1728,6 @@ class AutoaApp:
             yield self.friend_list_template
         if self.message_cube_template:
             yield self.message_cube_template
-        yield self.greenchat_template
 
     def _focus_line_window(self, pyautogui_module: Any) -> bool:
         try:
