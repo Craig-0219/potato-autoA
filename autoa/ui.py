@@ -552,6 +552,8 @@ class AutoaApp:
             self._set_current_step("發送訊息中")
             sent_count = 0
             clicked_count = 0
+            consecutive_failures = 0  # 連續失敗計數器
+            MAX_CONSECUTIVE_FAILURES = 3  # 最大連續失敗次數
 
             for idx in range(friend_count):
                 if self.stop_event.is_set():
@@ -601,16 +603,83 @@ class AutoaApp:
                         self.append_log(f"  → 已點擊訊息輸入框中央恢復焦點 ({focus_x}, {focus_y})")
                         time.sleep(0.3)
                     else:
-                        self.append_log(f"  ⚠ 無法解析訊息輸入框位置")
+                        self.append_log(f"  ✗ 無法解析訊息輸入框位置")
+                        consecutive_failures += 1
+                        # 詢問用戶是否繼續
+                        should_continue = [None]
+                        def ask_continue():
+                            result = messagebox.askyesno(
+                                '錯誤',
+                                f'第 {current_num} 位好友：無法解析訊息輸入框位置。\n\n是否繼續處理下一位好友？'
+                            )
+                            should_continue[0] = result
+                        self.root.after(0, ask_continue)
+                        while should_continue[0] is None:
+                            time.sleep(0.1)
+                        if not should_continue[0]:
+                            self.append_log("用戶選擇終止流程")
+                            break
+                        continue
                 else:
-                    self.append_log(f"  ⚠ 未找到訊息輸入框，跳過聚焦")
+                    self.append_log(f"  ✗ 未找到訊息輸入框")
+                    consecutive_failures += 1
+
+                    # 檢查是否超過最大連續失敗次數
+                    if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                        error_msg = f'連續 {consecutive_failures} 次無法找到訊息輸入框，流程自動終止。\n\n可能原因：\n1. LINE 視窗被遮擋\n2. 主題選擇錯誤（請確認使用正確的主題）\n3. 模板圖片不匹配'
+                        self.append_log(f"✗ {error_msg}")
+                        self.root.after(0, lambda: messagebox.showerror('流程終止', error_msg))
+                        self.root.after(0, lambda: self._on_worker_finished(False))
+                        return
+
+                    # 詢問用戶是否繼續
+                    should_continue = [None]
+                    def ask_continue():
+                        result = messagebox.askyesno(
+                            '錯誤',
+                            f'第 {current_num} 位好友：找不到訊息輸入框（連續失敗 {consecutive_failures}/{MAX_CONSECUTIVE_FAILURES} 次）。\n\n可能原因：\n1. LINE 視窗被遮擋\n2. 主題選擇錯誤\n3. 聊天視窗未完全開啟\n\n是否繼續處理下一位好友？'
+                        )
+                        should_continue[0] = result
+                    self.root.after(0, ask_continue)
+                    while should_continue[0] is None:
+                        time.sleep(0.1)
+                    if not should_continue[0]:
+                        self.append_log("用戶選擇終止流程")
+                        break
+                    continue
 
                 # 發送訊息
-                if self._send_message_to_current_chat(pyautogui, message, image_path, dry_run):
+                send_result = self._send_message_to_current_chat(pyautogui, message, image_path, dry_run)
+                if send_result:
                     sent_count += 1
+                    consecutive_failures = 0  # 重置連續失敗計數器
                     self.append_log(f"  ✓ 訊息已發送（累計 {sent_count} 次）")
                 else:
                     self.append_log(f"  ✗ 訊息發送失敗")
+                    consecutive_failures += 1
+
+                    # 檢查是否超過最大連續失敗次數
+                    if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                        error_msg = f'連續 {consecutive_failures} 次發送失敗，流程自動終止。'
+                        self.append_log(f"✗ {error_msg}")
+                        self.root.after(0, lambda: messagebox.showerror('流程終止', error_msg))
+                        self.root.after(0, lambda: self._on_worker_finished(False))
+                        return
+
+                    # 詢問用戶是否繼續
+                    should_continue = [None]
+                    def ask_continue():
+                        result = messagebox.askyesno(
+                            '發送失敗',
+                            f'第 {current_num} 位好友發送失敗（連續失敗 {consecutive_failures}/{MAX_CONSECUTIVE_FAILURES} 次）。\n\n是否繼續處理下一位好友？'
+                        )
+                        should_continue[0] = result
+                    self.root.after(0, ask_continue)
+                    while should_continue[0] is None:
+                        time.sleep(0.1)
+                    if not should_continue[0]:
+                        self.append_log("用戶選擇終止流程")
+                        break
 
                 # 延遲後切換到下一個好友
                 if current_num < friend_count:
