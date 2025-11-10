@@ -515,7 +515,10 @@ class AutoaApp:
                 self.root.after(0, lambda: self._on_worker_finished(False))
                 return
 
-            time.sleep(0.5)
+            if self._interruptible_sleep(0.5):
+                self.append_log("用戶中止流程")
+                self.root.after(0, lambda: self._on_worker_finished(False))
+                return
 
             # 手動模式：等待用戶確認已開啟第一個好友的聊天視窗
             self.append_log("等待用戶確認已開啟第一個好友的聊天視窗...")
@@ -534,11 +537,11 @@ class AutoaApp:
 
             # 等待用戶確認
             while confirmed[0] is None:
-                time.sleep(0.1)
                 if self.stop_event.is_set():
                     self.append_log("用戶中止流程")
                     self.root.after(0, lambda: self._on_worker_finished(False))
                     return
+                time.sleep(0.05)
 
             if not confirmed[0]:
                 self.append_log("用戶取消流程")
@@ -546,12 +549,17 @@ class AutoaApp:
                 return
 
             self.append_log("用戶已確認聊天視窗已開啟，繼續執行...")
-            time.sleep(0.5)
+            if self._interruptible_sleep(0.5):
+                self.append_log("用戶中止流程")
+                self.root.after(0, lambda: self._on_worker_finished(False))
+                return
 
             # 4. 開始循環處理每個好友
             self._set_current_step("發送訊息中")
             sent_count = 0
             clicked_count = 0
+            consecutive_failures = 0  # 連續失敗計數器
+            MAX_CONSECUTIVE_FAILURES = 3  # 最大連續失敗次數
 
             for idx in range(friend_count):
                 if self.stop_event.is_set():
@@ -579,7 +587,9 @@ class AutoaApp:
 
                         self.append_log(f"  → 檢測到綠色按鈕，點擊開啟聊天窗口")
                         pyautogui.click(click_x, click_y)
-                        time.sleep(1.2)
+                        if self._interruptible_sleep(1.2):
+                            self.append_log("用戶中止流程")
+                            break
 
                         # 驗證按鈕消失
                         check_location = self._try_locate(pyautogui, self.greenchat_template, confidence=0.90)
@@ -599,37 +609,123 @@ class AutoaApp:
                         focus_y = cube_coords[1] + cube_coords[3] // 2
                         pyautogui.click(focus_x, focus_y)
                         self.append_log(f"  → 已點擊訊息輸入框中央恢復焦點 ({focus_x}, {focus_y})")
-                        time.sleep(0.3)
+                        if self._interruptible_sleep(0.3):
+                            self.append_log("用戶中止流程")
+                            break
                     else:
-                        self.append_log(f"  ⚠ 無法解析訊息輸入框位置")
+                        self.append_log(f"  ✗ 無法解析訊息輸入框位置")
+                        consecutive_failures += 1
+                        # 詢問用戶是否繼續
+                        should_continue = [None]
+                        def ask_continue():
+                            result = messagebox.askyesno(
+                                '錯誤',
+                                f'第 {current_num} 位好友：無法解析訊息輸入框位置。\n\n是否繼續處理下一位好友？'
+                            )
+                            should_continue[0] = result
+                        self.root.after(0, ask_continue)
+                        while should_continue[0] is None:
+                            if self.stop_event.is_set():
+                                self.append_log("用戶中止流程")
+                                break
+                            time.sleep(0.05)
+                        if self.stop_event.is_set() or not should_continue[0]:
+                            self.append_log("用戶選擇終止流程")
+                            break
+                        continue
                 else:
-                    self.append_log(f"  ⚠ 未找到訊息輸入框，跳過聚焦")
+                    self.append_log(f"  ✗ 未找到訊息輸入框")
+                    consecutive_failures += 1
+
+                    # 檢查是否超過最大連續失敗次數
+                    if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                        error_msg = f'連續 {consecutive_failures} 次無法找到訊息輸入框，流程自動終止。\n\n可能原因：\n1. LINE 視窗被遮擋\n2. 主題選擇錯誤（請確認使用正確的主題）\n3. 模板圖片不匹配'
+                        self.append_log(f"✗ {error_msg}")
+                        self.root.after(0, lambda: messagebox.showerror('流程終止', error_msg))
+                        self.root.after(0, lambda: self._on_worker_finished(False))
+                        return
+
+                    # 詢問用戶是否繼續
+                    should_continue = [None]
+                    def ask_continue():
+                        result = messagebox.askyesno(
+                            '錯誤',
+                            f'第 {current_num} 位好友：找不到訊息輸入框（連續失敗 {consecutive_failures}/{MAX_CONSECUTIVE_FAILURES} 次）。\n\n可能原因：\n1. LINE 視窗被遮擋\n2. 主題選擇錯誤\n3. 聊天視窗未完全開啟\n\n是否繼續處理下一位好友？'
+                        )
+                        should_continue[0] = result
+                    self.root.after(0, ask_continue)
+                    while should_continue[0] is None:
+                        if self.stop_event.is_set():
+                            self.append_log("用戶中止流程")
+                            break
+                        time.sleep(0.05)
+                    if self.stop_event.is_set() or not should_continue[0]:
+                        self.append_log("用戶選擇終止流程")
+                        break
+                    continue
 
                 # 發送訊息
-                if self._send_message_to_current_chat(pyautogui, message, image_path, dry_run):
+                send_result = self._send_message_to_current_chat(pyautogui, message, image_path, dry_run)
+                if send_result:
                     sent_count += 1
+                    consecutive_failures = 0  # 重置連續失敗計數器
                     self.append_log(f"  ✓ 訊息已發送（累計 {sent_count} 次）")
                 else:
                     self.append_log(f"  ✗ 訊息發送失敗")
+                    consecutive_failures += 1
+
+                    # 檢查是否超過最大連續失敗次數
+                    if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                        error_msg = f'連續 {consecutive_failures} 次發送失敗，流程自動終止。'
+                        self.append_log(f"✗ {error_msg}")
+                        self.root.after(0, lambda: messagebox.showerror('流程終止', error_msg))
+                        self.root.after(0, lambda: self._on_worker_finished(False))
+                        return
+
+                    # 詢問用戶是否繼續
+                    should_continue = [None]
+                    def ask_continue():
+                        result = messagebox.askyesno(
+                            '發送失敗',
+                            f'第 {current_num} 位好友發送失敗（連續失敗 {consecutive_failures}/{MAX_CONSECUTIVE_FAILURES} 次）。\n\n是否繼續處理下一位好友？'
+                        )
+                        should_continue[0] = result
+                    self.root.after(0, ask_continue)
+                    while should_continue[0] is None:
+                        if self.stop_event.is_set():
+                            self.append_log("用戶中止流程")
+                            break
+                        time.sleep(0.05)
+                    if self.stop_event.is_set() or not should_continue[0]:
+                        self.append_log("用戶選擇終止流程")
+                        break
 
                 # 延遲後切換到下一個好友
                 if current_num < friend_count:
                     self.append_log(f"  → 延遲 {delay} 秒後切換到下一位好友")
-                    time.sleep(delay)
+                    if self._interruptible_sleep(delay):
+                        self.append_log("用戶中止流程")
+                        break
 
                     # 手動模式：按 ESC -> DOWN -> ENTER 切換並開啟下一個好友
                     self.append_log(f"  → 按 ESC 離開輸入框")
                     pyautogui.press('esc')
-                    time.sleep(0.3)
+                    if self._interruptible_sleep(0.3):
+                        self.append_log("用戶中止流程")
+                        break
 
                     # 按 DOWN 鍵切換到下一個好友
                     pyautogui.press('down')
-                    time.sleep(0.3)
+                    if self._interruptible_sleep(0.3):
+                        self.append_log("用戶中止流程")
+                        break
 
                     # 按 ENTER 開啟對話窗口
                     self.append_log(f"  → 按 ENTER 開啟對話窗口")
                     pyautogui.press('enter')
-                    time.sleep(0.3)
+                    if self._interruptible_sleep(0.3):
+                        self.append_log("用戶中止流程")
+                        break
 
             # 5. 完成
             self._set_progress(100.0)
@@ -645,6 +741,22 @@ class AutoaApp:
             self.append_log(traceback.format_exc())
             self.root.after(0, lambda err=exc: messagebox.showerror('執行失敗', f'執行失敗：{err}'))
             self.root.after(0, lambda: self._on_worker_finished(False))
+
+    def _interruptible_sleep(self, duration: float) -> bool:
+        """可中斷的睡眠，定期檢查 stop_event
+
+        Args:
+            duration: 睡眠時長（秒）
+
+        Returns:
+            True 如果收到終止信號，False 如果正常完成
+        """
+        end_time = time.time() + duration
+        while time.time() < end_time:
+            if self.stop_event.is_set():
+                return True
+            time.sleep(0.05)  # 每 50ms 檢查一次
+        return False
 
     def _wait_if_paused(self) -> bool:
         with self.pause_condition:
@@ -957,7 +1069,8 @@ class AutoaApp:
 
             window = windows[0]
             window.activate()
-            time.sleep(0.5)  # 增加等待時間，確保視窗完全激活
+            if self._interruptible_sleep(0.5):  # 增加等待時間，確保視窗完全激活
+                return False
 
             # 1. 找到訊息輸入框（使用 message_cube.png 模板）
             self.append_log("  → 偵測訊息輸入框")
@@ -981,7 +1094,8 @@ class AutoaApp:
             # 2. 點擊輸入框，確保游標在輸入框中
             self.append_log(f"  → 點擊輸入框中心座標 ({input_x}, {input_y})")
             pyautogui_module.click(input_x, input_y)
-            time.sleep(0.5)  # 等待游標出現並穩定
+            if self._interruptible_sleep(0.5):  # 等待游標出現並穩定
+                return False
 
             # 3. 貼上訊息文字（使用剪貼簿）
             if message:
@@ -990,11 +1104,13 @@ class AutoaApp:
 
                     self.append_log("  → 準備複製訊息到剪貼簿")
                     pyperclip.copy(message)
-                    time.sleep(0.2)
+                    if self._interruptible_sleep(0.2):
+                        return False
 
                     self.append_log("  → 貼上訊息")
                     pyautogui_module.hotkey('ctrl', 'v')
-                    time.sleep(0.3)
+                    if self._interruptible_sleep(0.3):
+                        return False
 
                 except ImportError:
                     self.append_log("  ⚠ pyperclip 未安裝，無法貼上訊息")
@@ -1038,12 +1154,14 @@ class AutoaApp:
                     win32clipboard.SetClipboardData(win32clipboard.CF_DIB, data)
                     win32clipboard.CloseClipboard()
 
-                    time.sleep(0.3)
+                    if self._interruptible_sleep(0.3):
+                        return False
 
                     # 在聊天框中貼上圖片
                     self.append_log(f"  → 貼上圖片到聊天框")
                     pyautogui_module.hotkey('ctrl', 'v')
-                    time.sleep(1.0)  # 等待圖片載入
+                    if self._interruptible_sleep(1.0):  # 等待圖片載入
+                        return False
 
                     self.append_log(f"  ✓ 圖片已附加")
 
@@ -1058,15 +1176,18 @@ class AutoaApp:
                 self.append_log("  → 乾跑模式：不實際發送")
                 # 選取全部內容（Ctrl+A）然後刪除（Delete）
                 pyautogui_module.hotkey('ctrl', 'a')
-                time.sleep(0.2)
+                if self._interruptible_sleep(0.2):
+                    return False
                 pyautogui_module.press('delete')
-                time.sleep(0.3)
+                if self._interruptible_sleep(0.3):
+                    return False
                 return True
             else:
                 self.append_log("  → 發送訊息")
                 # 按 Enter 發送
                 pyautogui_module.press('enter')
-                time.sleep(0.3)
+                if self._interruptible_sleep(0.3):
+                    return False
                 return True
 
         except Exception as exc:
