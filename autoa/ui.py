@@ -58,7 +58,7 @@ class AutoaApp:
         self.message_text: tk.Text | None = None
         self.image_var = tk.StringVar()
         self.mode_var = tk.StringVar(value="dryrun")
-        self.auto_mode_var = tk.StringVar(value="manual")  # 自動/手動模式（暫時只開放手動）
+        self.theme_var = tk.StringVar(value="light")  # 主題選擇：light（淺色）或 dark（深色）
         self.exec_count_var = tk.StringVar(value="1")
         self.throttle_min_var = tk.StringVar(value="1.0")
         self.throttle_max_var = tk.StringVar(value="2.0")
@@ -89,19 +89,37 @@ class AutoaApp:
             "line": False,
         }
 
-        self.friend_list_template = get_resource_path("templates/friend-list.png")
-        self.message_cube_template = get_resource_path("templates/message_cube.png")
-        self.greenchat_template = get_resource_path("templates/greenchat.png")  # 新增：綠色聊天框模板
-        self.hide_arrow_template = get_resource_path("templates/hide.png")
-        self.show_arrow_template = get_resource_path("templates/show.png")
+        # 模板會根據主題動態加載
+        self.friend_list_template = None
+        self.message_cube_template = None
+        self.greenchat_template = get_resource_path("templates/greenchat.png")  # 兩種主題共用
+
+        # 綁定主題變更事件
+        self.theme_var.trace_add('write', self._on_theme_changed)
 
         self.notebook: ttk.Notebook | None = None
 
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
         self._build_ui()
+        self._load_templates()  # 初始加載模板
         self.run_system_checks()
         self.refresh_line_status()
+
+    # ------------------------------------------------------------------
+    def _on_theme_changed(self, *args) -> None:
+        """主題變更時重新加載模板"""
+        self._load_templates()
+        self.append_log(f"已切換到{'深色' if self.theme_var.get() == 'dark' else '淺色'}主題")
+
+    def _load_templates(self) -> None:
+        """根據當前主題加載對應的模板圖片"""
+        theme = self.theme_var.get()
+        prefix = "black-" if theme == "dark" else "light-"
+
+        self.friend_list_template = get_resource_path(f"templates/{prefix}friend-list.png")
+        self.message_cube_template = get_resource_path(f"templates/{prefix}message_cube.png")
+        # greenchat.png 兩種主題共用，不需要重新加載
 
     # ------------------------------------------------------------------
     def _build_ui(self) -> None:
@@ -156,12 +174,12 @@ class AutoaApp:
         ttk.Radiobutton(mode_frame, text="乾跑（不實際發送）", value="dryrun", variable=self.mode_var).pack(side="left", padx=(0, 16))
         ttk.Radiobutton(mode_frame, text="正式（實際發送）", value="live", variable=self.mode_var).pack(side="left")
 
-        # 自動/手動模式設置（暫時只開放手動模式）
-        ttk.Label(frame, text="操作模式：").grid(row=3, column=0, sticky="w", pady=(8, 0))
-        auto_mode_frame = ttk.Frame(frame)
-        auto_mode_frame.grid(row=3, column=1, columnspan=2, sticky="w", pady=(8, 0))
-        ttk.Radiobutton(auto_mode_frame, text="自動（含箭頭校正）", value="auto", variable=self.auto_mode_var, state="disabled").pack(side="left", padx=(0, 16))
-        ttk.Radiobutton(auto_mode_frame, text="手動（需先開啟好友視窗）", value="manual", variable=self.auto_mode_var).pack(side="left")
+        # 主題選擇
+        ttk.Label(frame, text="介面主題：").grid(row=3, column=0, sticky="w", pady=(8, 0))
+        theme_frame = ttk.Frame(frame)
+        theme_frame.grid(row=3, column=1, columnspan=2, sticky="w", pady=(8, 0))
+        ttk.Radiobutton(theme_frame, text="淺色主題", value="light", variable=self.theme_var).pack(side="left", padx=(0, 16))
+        ttk.Radiobutton(theme_frame, text="深色主題", value="dark", variable=self.theme_var).pack(side="left")
 
     def _build_message_section(self, parent: ttk.Frame) -> None:
         frame = ttk.LabelFrame(parent, text="訊息內容", padding=10)
@@ -258,17 +276,9 @@ class AutoaApp:
             pady=(8, 0),
         )
 
-        ttk.Label(frame, text="箭頭校正").grid(row=2, column=0, sticky="w", pady=(8, 0))
-        ttk.Button(frame, text="開始校正", command=self.handle_align_arrow_sections, width=12).grid(
-            row=2,
-            column=1,
-            sticky="e",
-            pady=(8, 0),
-        )
-
-        ttk.Label(frame, text="依序開啟聊天窗").grid(row=3, column=0, sticky="w", pady=(8, 0))
+        ttk.Label(frame, text="依序開啟聊天窗").grid(row=2, column=0, sticky="w", pady=(8, 0))
         ttk.Button(frame, text="開始測試", command=self.handle_cycle_friend_chats, width=12).grid(
-            row=3,
+            row=2,
             column=1,
             sticky="e",
             pady=(8, 0),
@@ -403,7 +413,6 @@ class AutoaApp:
 
         image_path = self.image_var.get().strip() or None
         dry_run = self.mode_var.get() != "live"
-        auto_mode = self.auto_mode_var.get() == "auto"
 
         # 呼叫 LINE 視窗到最上層
         try:
@@ -424,15 +433,14 @@ class AutoaApp:
             self.pause_button.configure(text="暫停")
 
         self._toggle_buttons(running=True)
-        mode_text = "手動模式" if not auto_mode else ""
         dry_run_text = "（乾跑模式）" if dry_run else ""
-        self.append_log(f"開始執行流程{mode_text}{dry_run_text}。")
+        self.append_log(f"開始執行流程{dry_run_text}。")
 
         # 不再使用收件者，使用空字符串
         recipient = ""
         self.worker_thread = threading.Thread(
             target=self._run_flow,
-            args=(recipient, message, image_path, throttle, dry_run, auto_mode),
+            args=(recipient, message, image_path, throttle, dry_run),
             daemon=True,
         )
         self.worker_thread.start()
@@ -476,13 +484,8 @@ class AutoaApp:
         image_path: str | None,
         throttle: tuple[float, float],
         dry_run: bool,
-        auto_mode: bool = True,
     ) -> None:
-        """主流程：批量發送訊息給好友列表
-
-        Args:
-            auto_mode: True=自動模式（含箭頭校正和點擊第一個好友），False=手動模式（需先手動開啟好友視窗）
-        """
+        """主流程：批量發送訊息給好友列表（手動模式）"""
         try:
             import pyautogui
         except ImportError as exc:
@@ -514,78 +517,36 @@ class AutoaApp:
 
             time.sleep(0.5)
 
-            # 初始化好友列表座標（手動模式下不需要）
-            first_friend_x = 0
-            first_friend_y = 0
+            # 手動模式：等待用戶確認已開啟第一個好友的聊天視窗
+            self.append_log("等待用戶確認已開啟第一個好友的聊天視窗...")
+            self._set_progress(25.0)
 
-            if auto_mode:
-                # 自動模式：執行箭頭校正並點擊第一個好友
-                # 2. 執行箭頭校正（只有好友列表展開）
-                self.append_log("步驟 2/3：校正側邊欄（只展開好友列表）")
-                self._set_progress(15.0)
-                if not self._calibrate_arrows_for_friend_only(pyautogui):
-                    self.append_log("箭頭校正失敗")
-                    self.root.after(0, lambda: messagebox.showwarning('執行失敗', '箭頭校正失敗，請確認側邊欄可見。'))
+            # 彈出確認框，確保用戶已手動開啟第一個好友的聊天視窗
+            confirmed = [None]  # None 表示尚未回應，True 表示確認，False 表示取消
+            def show_confirm():
+                result = messagebox.askyesno(
+                    '確認聊天視窗',
+                    '請確認您是否已手動開啟第一個好友的聊天視窗？\n\n點擊「是」繼續執行，點擊「否」取消流程。'
+                )
+                confirmed[0] = result
+
+            self.root.after(0, show_confirm)
+
+            # 等待用戶確認
+            while confirmed[0] is None:
+                time.sleep(0.1)
+                if self.stop_event.is_set():
+                    self.append_log("用戶中止流程")
                     self.root.after(0, lambda: self._on_worker_finished(False))
                     return
 
-                time.sleep(0.5)
+            if not confirmed[0]:
+                self.append_log("用戶取消流程")
+                self.root.after(0, lambda: self._on_worker_finished(False))
+                return
 
-                # 3. 找到好友標題並點擊第一個好友
-                self.append_log("步驟 3/3：定位第一個好友")
-                self._set_progress(25.0)
-                friend_template = get_resource_path("templates/friend.png")
-                friend_location = self._try_locate(pyautogui, friend_template, confidence=0.88)
-                if friend_location is None:
-                    self.append_log("未找到好友標題")
-                    self.root.after(0, lambda: messagebox.showwarning('執行失敗', '未找到好友標題，請確認好友區塊已展開。'))
-                    self.root.after(0, lambda: self._on_worker_finished(False))
-                    return
-
-                friend_coords = self._box_to_tuple(friend_location)
-                if friend_coords is None:
-                    self.append_log("好友標題位置解析失敗")
-                    self.root.after(0, lambda: self._on_worker_finished(False))
-                    return
-
-                first_friend_x = friend_coords[0] + friend_coords[2] // 2 + 40  # 往右移動 40 像素
-                first_friend_y = friend_coords[1] + friend_coords[3] + 20
-
-                pyautogui.click(first_friend_x, first_friend_y)
-                self.append_log(f"已選中第一個好友於 ({first_friend_x}, {first_friend_y})")
-                time.sleep(0.5)
-            else:
-                # 手動模式：跳過箭頭校正和點擊第一個好友
-                self.append_log("手動模式：跳過箭頭校正和好友定位")
-                self.append_log("等待用戶確認已開啟第一個好友的聊天視窗...")
-                self._set_progress(25.0)
-
-                # 彈出確認框，確保用戶已手動開啟第一個好友的聊天視窗
-                confirmed = [None]  # None 表示尚未回應，True 表示確認，False 表示取消
-                def show_confirm():
-                    result = messagebox.askyesno(
-                        '確認聊天視窗',
-                        '請確認您是否已手動開啟第一個好友的聊天視窗？\n\n點擊「是」繼續執行，點擊「否」取消流程。'
-                    )
-                    confirmed[0] = result
-
-                self.root.after(0, show_confirm)
-
-                # 等待用戶確認
-                while confirmed[0] is None:
-                    time.sleep(0.1)
-                    if self.stop_event.is_set():
-                        self.append_log("用戶中止流程")
-                        self.root.after(0, lambda: self._on_worker_finished(False))
-                        return
-
-                if not confirmed[0]:
-                    self.append_log("用戶取消流程")
-                    self.root.after(0, lambda: self._on_worker_finished(False))
-                    return
-
-                self.append_log("用戶已確認聊天視窗已開啟，繼續執行...")
-                time.sleep(0.5)
+            self.append_log("用戶已確認聊天視窗已開啟，繼續執行...")
+            time.sleep(0.5)
 
             # 4. 開始循環處理每個好友
             self._set_current_step("發送訊息中")
@@ -656,42 +617,19 @@ class AutoaApp:
                     self.append_log(f"  → 延遲 {delay} 秒後切換到下一位好友")
                     time.sleep(delay)
 
-                    if auto_mode and idx == 0:
-                        # 自動模式：偵測 message_cube.png 並點擊中央以恢復焦點
-                        self.append_log(f"  → 偵測訊息輸入框以恢復焦點")
-                        message_cube_location = self._try_locate(pyautogui, self.message_cube_template, confidence=0.85)
-                        if message_cube_location:
-                            cube_coords = self._box_to_tuple(message_cube_location)
-                            if cube_coords:
-                                focus_x = cube_coords[0] + cube_coords[2] // 2
-                                focus_y = cube_coords[1] + cube_coords[3] // 2
-                                pyautogui.click(focus_x, focus_y)
-                                self.append_log(f"  → 已點擊訊息輸入框中央恢復焦點 ({focus_x}, {focus_y})")
-                                time.sleep(0.3)
-                            else:
-                                self.append_log(f"  ⚠ 無法解析訊息輸入框位置，使用好友列表位置")
-                                pyautogui.click(first_friend_x, first_friend_y)
-                                time.sleep(0.3)
-                        else:
-                            self.append_log(f"  ⚠ 未找到訊息輸入框，使用好友列表位置")
-                            pyautogui.click(first_friend_x, first_friend_y)
-                            time.sleep(0.3)
-
                     # 手動模式：按 ESC -> DOWN -> ENTER 切換並開啟下一個好友
-                    if not auto_mode:
-                        self.append_log(f"  → 手動模式：按 ESC 離開輸入框")
-                        pyautogui.press('esc')
-                        time.sleep(0.3)
+                    self.append_log(f"  → 按 ESC 離開輸入框")
+                    pyautogui.press('esc')
+                    time.sleep(0.3)
 
                     # 按 DOWN 鍵切換到下一個好友
                     pyautogui.press('down')
                     time.sleep(0.3)
 
-                    # 手動模式：按 ENTER 開啟對話窗口
-                    if not auto_mode:
-                        self.append_log(f"  → 手動模式：按 ENTER 開啟對話窗口")
-                        pyautogui.press('enter')
-                        time.sleep(0.3)
+                    # 按 ENTER 開啟對話窗口
+                    self.append_log(f"  → 按 ENTER 開啟對話窗口")
+                    pyautogui.press('enter')
+                    time.sleep(0.3)
 
             # 5. 完成
             self._set_progress(100.0)
@@ -899,27 +837,8 @@ class AutoaApp:
                 self.root.after(0, lambda: messagebox.showwarning('測試失敗', '未偵測到 LINE 視窗。'))
                 return
 
-            # 2. 找到好友標題位置
-            friend_template = get_resource_path("templates/friend.png")
-            friend_location = self._try_locate(pyautogui, friend_template, confidence=0.88)
-            if friend_location is None:
-                self.append_log("未找到好友標題")
-                self.root.after(0, lambda: messagebox.showwarning('測試失敗', '未找到好友標題，請確認好友區塊已展開。'))
-                return
-
-            friend_coords = self._box_to_tuple(friend_location)
-            if friend_coords is None:
-                self.append_log("好友標題位置解析失敗")
-                return
-
-            # 3. 計算第一個好友的點擊位置（標題下方一點點）
-            first_friend_x = friend_coords[0] + friend_coords[2] // 2 + 40  # 往右移動 40 像素
-            first_friend_y = friend_coords[1] + friend_coords[3] + 20  # 標題下方 20 像素
-
-            self.append_log(f"準備點擊第一個好友位置：({first_friend_x}, {first_friend_y})")
-
-            # 4. 點擊第一個好友選中它（不會打開聊天窗）
-            pyautogui.click(first_friend_x, first_friend_y)
+            # 2. 手動模式：要求用戶先手動選中第一個好友
+            self.append_log("手動模式：請確保已手動選中第一個好友")
             time.sleep(0.5)
 
             # 確保 LINE 視窗保持焦點
@@ -1019,261 +938,6 @@ class AutoaApp:
             self.root.after(0, lambda err=exc: messagebox.showerror('測試失敗', f'執行失敗：{err}'))
         finally:
             self.friend_cycle_thread = None
-
-    def _calibrate_arrows_for_friend_only(self, pyautogui_module: Any) -> bool:
-        """執行箭頭校正：先收合所有箭頭，再展開好友（最下面的一個）"""
-        try:
-            screen_width, screen_height = pyautogui_module.size()
-        except Exception:
-            screen_width = screen_height = None
-
-        self.append_log("開始箭頭校正：先收合所有箭頭，再展開最下面的一個（好友區塊）")
-
-        # 獲取 LINE 視窗範圍
-        line_region = self._get_line_window_region(pyautogui_module)
-        if line_region:
-            left, top, width, height = line_region
-            self.append_log(f"  → LINE 視窗範圍：X={left}, Y={top}, 寬={width}, 高={height}")
-        else:
-            self.append_log("  → 無法獲取 LINE 視窗範圍")
-            left, top, width, height = 0, 0, screen_width if screen_width else 1920, screen_height if screen_height else 1080
-
-        # 先滾動到最上方，確保所有箭頭都在可見範圍內
-        self.append_log("  → 滾動左側面板到頂部")
-        self._scroll_left_panel_to_top(pyautogui_module)
-        time.sleep(0.5)  # 等待滾動完成
-
-        # 動態偵測左側面板寬度（使用 friend-list 按鈕位置）
-        friend_list_location = self._try_locate(pyautogui_module, self.friend_list_template, confidence=0.88)
-        if friend_list_location:
-            coords = self._box_to_tuple(friend_list_location)
-            if coords:
-                # 左側面板寬度 = friend-list 按鈕的右邊界 + 750 像素餘量
-                left_panel_width = int(coords[0] + coords[2] + 750) - left
-                self.append_log(f"  → 動態偵測左側面板寬度：{left_panel_width} 像素")
-            else:
-                left_panel_width = 800
-                self.append_log(f"  → 無法解析 friend-list 位置，使用預設寬度：{left_panel_width} 像素")
-        else:
-            left_panel_width = 800
-            self.append_log(f"  → 未偵測到 friend-list 按鈕，使用預設寬度：{left_panel_width} 像素")
-
-        # 限制搜尋範圍：只搜尋 LINE 視窗的左側面板（排除底部 80 像素避免抓到工作列）
-        bottom_margin = 80  # 預留底部餘量，避免抓到工作列
-        search_height = max(height - bottom_margin, 400)  # 至少保留 400 像素高度
-        target_region = (left, top, left_panel_width, search_height)
-        self.append_log(f"  → 箭頭搜尋範圍：X={left}, Y={top}, 寬={left_panel_width}, 高={search_height}（已排除底部 {bottom_margin} 像素）")
-
-        # === 初始診斷：檢查當前箭頭狀態 ===
-        self.append_log("  → 初始診斷：檢查當前箭頭狀態")
-
-        initial_show = self._try_locate_all(
-            pyautogui_module,
-            self.show_arrow_template,
-            region=target_region,
-            confidence=0.85
-        )
-        initial_hide = self._try_locate_all(
-            pyautogui_module,
-            self.hide_arrow_template,
-            region=target_region,
-            confidence=0.85
-        )
-
-        initial_show_count = len(initial_show) if initial_show else 0
-        initial_hide_count = len(initial_hide) if initial_hide else 0
-
-        self.append_log(f"    初始狀態：{initial_show_count} 個展開箭頭、{initial_hide_count} 個收合箭頭")
-
-        if initial_show and initial_show_count > 0:
-            self.append_log(f"    展開箭頭位置：")
-            for i, loc in enumerate(initial_show, 1):
-                coords = self._box_to_tuple(loc)
-                if coords:
-                    self.append_log(f"      {i}. Y={int(coords[1])}, X={int(coords[0])}")
-
-        if initial_hide and initial_hide_count > 0:
-            self.append_log(f"    收合箭頭位置：")
-            for i, loc in enumerate(initial_hide, 1):
-                coords = self._box_to_tuple(loc)
-                if coords:
-                    self.append_log(f"      {i}. Y={int(coords[1])}, X={int(coords[0])}")
-
-        # === 第一階段：收合所有展開的箭頭 ===
-        self.append_log("  階段 1：收合所有展開的箭頭")
-        max_collapse_attempts = 8  # 最多嘗試 8 次收合
-
-        for attempt in range(1, max_collapse_attempts + 1):
-            # 尋找所有展開箭頭
-            show_locations = self._try_locate_all(
-                pyautogui_module,
-                self.show_arrow_template,
-                region=target_region,
-                confidence=0.85
-            )
-
-            show_count = len(show_locations) if show_locations else 0
-
-            if show_count == 0:
-                self.append_log(f"  ✓ 所有箭頭已收合")
-                break
-
-            self.append_log(f"    第 {attempt} 次：偵測到 {show_count} 個展開箭頭")
-
-            # 顯示位置
-            for i, loc in enumerate(show_locations, 1):
-                coords = self._box_to_tuple(loc)
-                if coords:
-                    self.append_log(f"      展開箭頭 {i} 位於 Y={int(coords[1])}")
-
-            # 收合第一個（最上面的）展開箭頭
-            show_locations_sorted = sorted(
-                show_locations,
-                key=lambda loc: self._box_to_tuple(loc)[1] if self._box_to_tuple(loc) else float('inf')
-            )
-
-            first_show = show_locations_sorted[0]
-            location_tuple = self._box_to_tuple(first_show)
-
-            if location_tuple:
-                click_x = location_tuple[0] + location_tuple[2] / 2
-                click_y = location_tuple[1] + location_tuple[3] / 2
-
-                self.append_log(f"    → 點擊收合箭頭於 ({int(click_x)}, {int(click_y)})")
-                pyautogui_module.click(click_x, click_y)
-                time.sleep(0.8)  # 等待動畫完成
-
-        # === 第二階段：確認有足夠的收合箭頭 ===
-        self.append_log("  階段 2：確認收合箭頭數量")
-
-        # 檢查模板檔案是否存在
-        if not self.hide_arrow_template.exists():
-            self.append_log(f"  ✗ hide.png 模板檔案不存在：{self.hide_arrow_template}")
-            return False
-
-        # 先嘗試標準信心值 0.85
-        hide_locations = self._try_locate_all(
-            pyautogui_module,
-            self.hide_arrow_template,
-            region=target_region,
-            confidence=0.85
-        )
-
-        hide_count = len(hide_locations) if hide_locations else 0
-        self.append_log(f"    偵測到 {hide_count} 個收合箭頭（信心值 0.85）")
-
-        # 如果找不到，嘗試降低信心值
-        if hide_count == 0:
-            self.append_log(f"    → 嘗試降低信心值到 0.7 重新搜尋")
-            hide_locations = self._try_locate_all(
-                pyautogui_module,
-                self.hide_arrow_template,
-                region=target_region,
-                confidence=0.7
-            )
-            hide_count = len(hide_locations) if hide_locations else 0
-            self.append_log(f"    偵測到 {hide_count} 個收合箭頭（信心值 0.7）")
-
-        # 如果還是找不到，再嘗試更低的信心值
-        if hide_count == 0:
-            self.append_log(f"    → 嘗試降低信心值到 0.6 重新搜尋")
-            hide_locations = self._try_locate_all(
-                pyautogui_module,
-                self.hide_arrow_template,
-                region=target_region,
-                confidence=0.6
-            )
-            hide_count = len(hide_locations) if hide_locations else 0
-            self.append_log(f"    偵測到 {hide_count} 個收合箭頭（信心值 0.6）")
-
-        # 顯示位置
-        if hide_locations:
-            for i, loc in enumerate(hide_locations, 1):
-                coords = self._box_to_tuple(loc)
-                if coords:
-                    self.append_log(f"      收合箭頭 {i} 位於 Y={int(coords[1])}")
-
-        if hide_count == 0:
-            self.append_log(f"  ✗ 沒有偵測到任何收合箭頭")
-            self.append_log(f"  → 可能原因：")
-            self.append_log(f"     1. hide.png 模板無法匹配 LINE 中的收合箭頭樣式")
-            self.append_log(f"     2. LINE 視窗被其他視窗遮擋")
-            self.append_log(f"     3. 螢幕縮放比例不是 100%")
-            self.append_log(f"  → 解決方法：")
-            self.append_log(f"     1. 重新截取 hide.png：只截取收合箭頭（→）本身，約 20x20 像素")
-            self.append_log(f"     2. 確保 LINE 視窗完全可見且沒有被遮擋")
-            self.append_log(f"     3. 檢查 Windows 顯示設定，確認縮放比例為 100%")
-
-            # 截圖診斷
-            try:
-                import datetime
-                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                screenshot_path = f"debug_line_window_{timestamp}.png"
-                if target_region:
-                    # 截取 LINE 視窗範圍
-                    screenshot = pyautogui_module.screenshot(region=target_region)
-                else:
-                    # 截取全螢幕
-                    screenshot = pyautogui_module.screenshot()
-                screenshot.save(screenshot_path)
-                self.append_log(f"  → 已保存診斷截圖：{screenshot_path}")
-                self.append_log(f"     請檢查截圖，確認 LINE 側邊欄的箭頭是否可見")
-            except Exception as exc:
-                self.append_log(f"  → 保存診斷截圖失敗：{exc}")
-
-            return False
-
-        self.append_log(f"  ✓ 找到 {hide_count} 個收合箭頭，準備展開最下面的一個")
-
-        # === 第三階段：展開最下面的箭頭（好友）===
-        self.append_log("  階段 3：展開好友區塊（最下面的箭頭）")
-
-        # 按 Y 座標排序，找到最下面的
-        hide_locations_sorted = sorted(
-            hide_locations,
-            key=lambda loc: self._box_to_tuple(loc)[1] if self._box_to_tuple(loc) else float('inf')
-        )
-
-        # 展開最後一個（最下面的）
-        last_hide = hide_locations_sorted[-1]
-        location_tuple = self._box_to_tuple(last_hide)
-
-        if location_tuple:
-            click_x = location_tuple[0] + location_tuple[2] / 2
-            click_y = location_tuple[1] + location_tuple[3] / 2
-
-            self.append_log(f"    → 點擊展開最下面的箭頭於 ({int(click_x)}, {int(click_y)})")
-            pyautogui_module.click(click_x, click_y)
-            time.sleep(1.0)  # 等待動畫完成
-
-        # === 第四階段：驗證最終狀態 ===
-        self.append_log("  階段 4：驗證最終狀態")
-
-        show_locations = self._try_locate_all(
-            pyautogui_module,
-            self.show_arrow_template,
-            region=target_region,
-            confidence=0.85
-        )
-
-        hide_locations = self._try_locate_all(
-            pyautogui_module,
-            self.hide_arrow_template,
-            region=target_region,
-            confidence=0.85
-        )
-
-        show_count = len(show_locations) if show_locations else 0
-        hide_count = len(hide_locations) if hide_locations else 0
-
-        self.append_log(f"    最終狀態：{show_count} 個展開箭頭、{hide_count} 個收合箭頭")
-
-        if show_count >= 1:
-            self.append_log(f"  ✓ 箭頭校正成功：至少 1 個展開箭頭（好友區塊）")
-            return True
-        else:
-            self.append_log(f"  ⚠ 未偵測到展開箭頭，好友區塊可能未展開")
-            return False
 
     def _send_message_to_current_chat(
         self,
@@ -1416,26 +1080,6 @@ class AutoaApp:
 
         location = self._try_locate(pyautogui_module, self.greenchat_template, confidence=0.85)
         return location is not None
-
-    def handle_align_arrow_sections(self) -> None:
-        """測試頁面的箭頭校正功能"""
-        try:
-            import pyautogui
-        except ImportError as exc:
-            messagebox.showerror("箭頭校正", f"無法載入 pyautogui：{exc}")
-            return
-
-        if not self._focus_line_window(pyautogui):
-            messagebox.showwarning("箭頭校正", "未偵測到 LINE 視窗。")
-            return
-
-        self.append_log("開始箭頭校正")
-        success = self._calibrate_arrows_for_friend_only(pyautogui)
-
-        if success:
-            messagebox.showinfo("箭頭校正結果", "✓ 箭頭校正成功：已展開好友區塊")
-        else:
-            messagebox.showwarning("箭頭校正結果", "✗ 箭頭校正失敗，請查看日誌")
 
     def _scroll_left_panel_to_top(
         self,
@@ -2058,11 +1702,12 @@ class AutoaApp:
         return []
 
     def _template_paths(self) -> Iterable[Path]:
-        yield self.friend_list_template
-        yield self.message_cube_template
+        # 只返回非 None 的模板路徑
+        if self.friend_list_template:
+            yield self.friend_list_template
+        if self.message_cube_template:
+            yield self.message_cube_template
         yield self.greenchat_template
-        yield self.hide_arrow_template
-        yield self.show_arrow_template
 
     def _focus_line_window(self, pyautogui_module: Any) -> bool:
         try:
